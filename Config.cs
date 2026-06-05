@@ -33,6 +33,11 @@ internal sealed class Config
     /// word. A missing entry falls back to <c>false</c> (the default detailed badge).
     /// </summary>
     public List<bool> OverlayNamesOnly { get; set; } = new();
+
+    /// <summary>Defined-but-inactive streams parked by the roster editor (dynamic-grid Tier 1). The engine
+    /// never reads this pool; it is not positionally aligned with the active Streams/Names/OverlayNamesOnly
+    /// lists. Round-trips in streams.json. A missing key loads as an empty list (back-compat).</summary>
+    public List<InactiveStream> InactivePool { get; set; } = new();
     public int Monitor { get; set; } = 0;          // Screen.AllScreens index
     public bool Borderless { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = false;
@@ -170,18 +175,25 @@ internal sealed class Config
         Streams = (Streams ?? new List<string>())
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .Select(s => s.Trim())
-            .Take(4)
+            .Take(16)
             .ToList();
 
-        // Names align with Streams by position, so keep blanks (don't filter) — only trim and cap at 4.
+        // Names align with Streams by position, so keep blanks (don't filter) — only trim and cap at 16.
         Names = (Names ?? new List<string>())
             .Select(s => (s ?? string.Empty).Trim())
-            .Take(4)
+            .Take(16)
             .ToList();
 
-        // OverlayNamesOnly aligns with Streams by position too — keep entries, just cap at 4.
+        // OverlayNamesOnly aligns with Streams by position too — keep entries, just cap at 16.
         OverlayNamesOnly = (OverlayNamesOnly ?? new List<bool>())
-            .Take(4)
+            .Take(16)
+            .ToList();
+
+        // InactivePool has no positional alignment requirement — drop blank-URL entries, trim, soft-cap.
+        InactivePool = (InactivePool ?? new List<InactiveStream>())
+            .Where(p => p is not null && !string.IsNullOrWhiteSpace(p.Url))
+            .Select(p => new InactiveStream { Url = p.Url.Trim(), Name = (p.Name ?? "").Trim(), NamesOnly = p.NamesOnly })
+            .Take(64)   // soft cap to bound streams.json; arbitrary, generous
             .ToList();
 
         ExtraMpvArgs ??= new List<string>();
@@ -229,4 +241,13 @@ internal sealed class Config
             ? LogPath
             : Path.Combine(AppContext.BaseDirectory, LogPath);
     }
+}
+
+/// <summary>A defined-but-inactive stream parked in the roster pool. Not positionally aligned with anything;
+/// the engine never reads it. Round-trips in streams.json and over both IPC hops.</summary>
+internal sealed class InactiveStream
+{
+    public string Url { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool NamesOnly { get; set; }
 }
