@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -7,18 +9,22 @@ using System.Text.Json;
 namespace MpvGrid;
 
 /// <summary>
-/// The localhost HTTP/SSE bridge that backs the browser control UI. It serves the embedded web assets
+/// The LAN HTTP/SSE bridge that backs the browser control UI. It serves the embedded web assets
 /// (HTML/JS/CSS/fonts), streams <see cref="ViewFrame"/>s over Server-Sent Events (<c>GET /events</c>),
 /// and accepts operator actions as <see cref="ControlCommand"/>s (<c>POST /command</c>) which it hands to
 /// the supplied dispatcher. It mirrors <see cref="ControlServer"/>: a background accept loop, best-effort
 /// try/catch everywhere, nothing ever thrown into the host.
 ///
-/// Security model (validated): bind <c>http://localhost:PORT/</c> only — http.sys grants a non-admin that
-/// prefix with no urlacl/elevation, where <c>+</c>/<c>*</c>/<c>127.0.0.1</c> would throw Access Denied.
-/// Every request is also rejected unless its remote endpoint is loopback. A per-launch GUID token gates
-/// the meaningful routes — navigation (<c>/</c>), the telemetry stream (<c>/events</c>) and commands
-/// (<c>/command</c>); the inert static sub-resources (app.js/style.css/fonts) are served to loopback
-/// without a token since the browser fetches them without one and they expose nothing.
+/// Network model: binds the wildcard prefix <c>http://+:PORT/</c> so the panel is reachable from any device
+/// on the local network at <c>http://&lt;this-pc-ip&gt;:PORT</c> (the local machine still uses
+/// <c>http://localhost:PORT</c>). The wildcard bind and the inbound firewall rule both need admin, which is
+/// why the process runs elevated (see app.manifest); on a successful bind we self-register the firewall rule
+/// (<see cref="TryOpenFirewall"/>) so there's nothing to configure by hand.
+///
+/// Access control: this is a trusted-LAN convenience with NO token and NO TLS. The only gate is the source
+/// address — <see cref="IsLanClient"/> rejects any caller that isn't loopback or a private/link-local LAN
+/// address, so a public NIC on the same box can't reach it. Anyone on the local network, however, has full
+/// control of the grid. Acceptable for a private operator network; do not expose this to an untrusted one.
 /// </summary>
 internal sealed class HttpControlBridge : IDisposable
 {
@@ -31,7 +37,6 @@ internal sealed class HttpControlBridge : IDisposable
     private Thread? _thread;
     private volatile bool _stop;
 
-    public string Token { get; } = Guid.NewGuid().ToString("N");
     public int Port { get; private set; }
     public string? BaseUrl { get; private set; }
     public bool IsRunning => BaseUrl is not null;
@@ -43,45 +48,43 @@ internal sealed class HttpControlBridge : IDisposable
         _preferredPort = preferredPort;
     }
 
-    /// <summary>Bind a loopback port (the preferred one, else a short fallback scan — the bind <em>is</em> the
-    /// probe) and start the accept loop. Returns false if nothing bound, so the host can run headless.</summary>
+    /// <summary>Bind the fixed wildcard LAN port (<c>http://+:PORT/</c>) and start the accept loop. The port
+    /// is pinned (no scan) so the panel's URL is stable and type-able from other devices. Requires admin for
+    /// the wildcard bind; on success we also open the inbound firewall. Returns false if the bind fails, so
+    /// the host can run headless (the tray menu still works).</summary>
     public bool Start()
     {
-        for (int p = _preferredPort; p < _preferredPort + 20; p++)
+        int p = _preferredPort;
+        var listener = new HttpListener();
+        listener.Prefixes.Add($"http://+:{p}/");
+        try
         {
-            var listener = new HttpListener();
-            listener.Prefixes.Add($"http://localhost:{p}/");
-            try
-            {
-                listener.Start();
-                _listener = listener;
-                Port = p;
-                BaseUrl = $"http://localhost:{p}/";
-                break;
-            }
-            catch
-            {
-                try { listener.Close(); } catch { }
-            }
+            listener.Start();
+            _listener = listener;
+            Port = p;
+            // The local machine opens the panel via loopback; remote devices use http://<this-pc-ip>:PORT.
+            BaseUrl = $"http://localhost:{p}/";
         }
-
-        if (_listener is null)
+        catch (Exception ex)
         {
-            Logger.Log($"Bridge: could not bind any loopback port in {_preferredPort}..{_preferredPort + 19} — running headless.");
+            try { listener.Close(); } catch { }
+            Logger.Log($"Bridge: could not bind http://+:{p}/ ({ex.Message}) — running headless. " +
+                       "Is the port in use, or is the app not elevated?");
             return false;
         }
 
+        TryOpenFirewall(p);
+
         _thread = new Thread(AcceptLoop) { IsBackground = true, Name = "http-bridge" };
         _thread.Start();
-        Logger.Log($"Bridge: listening at {BaseUrl} (token gated).");
+        Logger.Log($"Bridge: listening on http://+:{p}/ — reachable on the LAN at http://<this-pc-ip>:{p} (no token).");
 
         // Diagnostic hook for automation/tests: when MPVGRID_BRIDGE_URLFILE points at a path, write the
-        // full tokenized URL there so a test harness can reach the gated endpoints. Off by default, so the
-        // token never lands in the normal log.
+        // panel URL there so a test harness can reach the endpoints.
         try
         {
             string? urlFile = Environment.GetEnvironmentVariable("MPVGRID_BRIDGE_URLFILE");
-            if (!string.IsNullOrEmpty(urlFile)) File.WriteAllText(urlFile, $"{BaseUrl}?token={Token}");
+            if (!string.IsNullOrEmpty(urlFile)) File.WriteAllText(urlFile, BaseUrl);
         }
         catch { }
 
@@ -115,9 +118,9 @@ internal sealed class HttpControlBridge : IDisposable
     {
         var req = ctx.Request;
 
-        // Defense-in-depth: localhost binding should already exclude remote callers, but reject any
-        // non-loopback endpoint outright.
-        if (req.RemoteEndPoint is null || !IPAddress.IsLoopback(req.RemoteEndPoint.Address))
+        // The only access gate (no token): accept loopback + private/link-local LAN callers, reject anything
+        // public — so a public NIC on this box can't reach the panel even though we bind the wildcard prefix.
+        if (!IsLanClient(req.RemoteEndPoint?.Address))
         {
             Respond(ctx, 403, "text/plain", Bytes("forbidden"));
             return;
@@ -126,10 +129,9 @@ internal sealed class HttpControlBridge : IDisposable
         string path = req.Url?.AbsolutePath ?? "/";
         string method = req.HttpMethod;
 
-        // ---- token-gated, meaningful routes ----
+        // ---- meaningful routes ----
         if (path == "/events" && method == "GET")
         {
-            if (!TokenOk(req)) { Respond(ctx, 403, "text/plain", Bytes("bad token")); return; }
             // Hand the still-open response to the hub; it owns the lifetime from here (do NOT close it).
             _sse.AddClient(ctx.Response);
             return;
@@ -137,19 +139,17 @@ internal sealed class HttpControlBridge : IDisposable
 
         if (path == "/command" && method == "POST")
         {
-            if (!TokenOk(req)) { Respond(ctx, 403, "text/plain", Bytes("bad token")); return; }
             HandleCommand(ctx);
             return;
         }
 
         if (path == "/" && method == "GET")
         {
-            if (!TokenOk(req)) { Respond(ctx, 403, "text/plain", Bytes("bad token")); return; }
             ServeAsset(ctx, "web.index.html", "text/html; charset=utf-8");
             return;
         }
 
-        // ---- inert static sub-resources (loopback only, no token) ----
+        // ---- static sub-resources ----
         if (method == "GET")
         {
             switch (path)
@@ -192,10 +192,63 @@ internal sealed class HttpControlBridge : IDisposable
         Respond(ctx, 200, "application/json", Bytes(ok ? "{\"ok\":true}" : "{\"ok\":false}"));
     }
 
-    private bool TokenOk(HttpListenerRequest req)
+    /// <summary>The sole access gate: true for loopback and private/link-local LAN sources, false for public
+    /// ones. IPv4-mapped IPv6 callers (common on a dual-stack wildcard bind) are unwrapped to their v4 form
+    /// first so a remote <c>::ffff:192.168.x.x</c> is judged on its real address.</summary>
+    private static bool IsLanClient(IPAddress? addr)
     {
-        string? t = req.QueryString["token"] ?? req.Headers["X-Token"];
-        return string.Equals(t, Token, StringComparison.Ordinal);
+        if (addr is null) return false;
+        if (IPAddress.IsLoopback(addr)) return true;
+
+        var a = addr.IsIPv4MappedToIPv6 ? addr.MapToIPv4() : addr;
+
+        if (a.AddressFamily == AddressFamily.InterNetwork)
+        {
+            byte[] b = a.GetAddressBytes();
+            if (b[0] == 10) return true;                              // 10.0.0.0/8
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true; // 172.16.0.0/12
+            if (b[0] == 192 && b[1] == 168) return true;             // 192.168.0.0/16
+            if (b[0] == 169 && b[1] == 254) return true;             // 169.254.0.0/16 link-local
+            return false;
+        }
+
+        if (a.AddressFamily == AddressFamily.InterNetworkV6)
+            return a.IsIPv6LinkLocal || a.IsIPv6UniqueLocal;         // fe80::/10, fc00::/7
+
+        return false;
+    }
+
+    /// <summary>Best-effort: ensure a single inbound TCP allow rule for our port exists, keyed by a stable
+    /// name so it's idempotent (delete-then-add). Needs admin — which we have (see app.manifest). Runs netsh
+    /// silently; any failure is logged and ignored (the listener still works on a network where the firewall
+    /// already permits the port, e.g. one configured by a prior run).</summary>
+    private static void TryOpenFirewall(int port)
+    {
+        const string ruleName = "MpvGrid Control Panel";
+        try
+        {
+            RunNetsh($"advfirewall firewall delete rule name=\"{ruleName}\"");
+            RunNetsh($"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow " +
+                     $"protocol=TCP localport={port} profile=any");
+            Logger.Log($"Bridge: ensured inbound firewall rule '{ruleName}' for TCP {port}.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Bridge: could not set firewall rule for TCP {port}: {ex.Message}");
+        }
+    }
+
+    private static void RunNetsh(string arguments)
+    {
+        var psi = new ProcessStartInfo("netsh", arguments)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using var proc = Process.Start(psi);
+        proc?.WaitForExit(5000);
     }
 
     /// <summary>Serve an embedded resource resolved by suffix match (robust to MSBuild id mangling), the

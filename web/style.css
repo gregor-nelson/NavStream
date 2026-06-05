@@ -576,7 +576,94 @@ textarea {
   line-height: 1.4;
 }
 
+/* Advanced (collapsible) sub-block inside the settings fieldset. */
+.settings-advanced { margin-top: 16px; }
+.settings-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--t-lo);
+}
+.settings-advanced > summary::-webkit-details-marker { display: none; }
+.settings-advanced > summary::before {
+  content: '▸';
+  font-size: 11px;
+  transition: transform 0.12s ease;
+}
+.settings-advanced[open] > summary::before { transform: rotate(90deg); }
+.settings-advanced > summary:hover { color: var(--t-md); }
+.settings-advanced > .settings-grid { margin-top: 12px; }
+
 /* ---- danger button (shutdown / exit) ---- */
 
 .btn-danger { color: var(--red); border-color: var(--red); background: transparent; }
 .btn-danger:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: #fff; }
+
+/* ---- custom tooltip (replaces the browser's native title= bubbles) ----
+   One shared floating panel (see wireTooltips in app.js), themed to match the chips/cards so help text
+   reads as the same product. Lives at <body> with position:fixed + a high z-index, so the settings
+   panel's overflow:auto can't clip it. Content is split on newlines: first line = heading, a trailing
+   "Default: …" line = the dim meta footer. */
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 9px 12px;
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+  color: var(--t-hi);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.2px;
+  white-space: normal;
+  pointer-events: none;                 /* never eat hover/clicks meant for the control beneath */
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tooltip.show { opacity: 1; transform: translateY(0); }
+
+/* First line: a brighter, semibold heading (only used when there's body text under it). */
+.tooltip-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: 0.3px;
+  color: var(--t-hi);
+  margin-bottom: 4px;
+}
+/* Body lines: the explanation paragraphs, a touch dimmer than the heading. */
+.tooltip-body { color: var(--t-md); }
+.tooltip-body + .tooltip-body { margin-top: 4px; }
+
+/* Trailing "Default: … Range: …" line, set apart as a dim numeric footer. */
+.tooltip-meta {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--outline-soft);
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  color: var(--t-lo);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Caret — a rotated square matching the panel; JS sets its horizontal offset, CSS flips it above/below. */
+.tooltip-arrow {
+  position: absolute;
+  width: 10px; height: 10px;
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  transform: rotate(45deg);
+}
+.tooltip.above .tooltip-arrow { bottom: -6px; border-left: 0; border-top: 0; }
+.tooltip.below .tooltip-arrow { top: -6px; border-right: 0; border-bottom: 0; }

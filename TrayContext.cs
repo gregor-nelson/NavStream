@@ -72,7 +72,7 @@ internal sealed class TrayContext : ApplicationContext
     private void OpenDashboard()
     {
         if (_bridge.IsRunning && _bridge.BaseUrl is { } url)
-            BrowserLauncher.Launch(url, _bridge.Token);
+            BrowserLauncher.Launch(url);
         else
             _tray.ShowBalloonTip(4000, "MpvGrid", "Web control panel unavailable.", ToolTipIcon.Warning);
     }

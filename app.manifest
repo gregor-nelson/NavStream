@@ -12,4 +12,19 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
     </application>
   </compatibility>
+
+  <!-- Require elevation (single UAC prompt at launch). The double-clicked supervisor is the only process
+       the user starts; the render + dashboard children it spawns inherit this elevation silently (no extra
+       prompts). The dashboard needs admin so its HTTP bridge can bind the LAN wildcard prefix
+       (http://+:PORT/) and add its own inbound firewall rule for cross-network access to the control panel
+       (see HttpControlBridge). Without elevation http.sys grants only http://localhost and the firewall
+       blocks remote callers. NOTE: this prompts UAC on every launch — intended for hand-started units, not
+       unattended auto-start on boot. -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
 </assembly>

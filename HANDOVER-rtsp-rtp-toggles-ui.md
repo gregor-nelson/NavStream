@@ -1,8 +1,11 @@
-# HANDOVER — RTSP/RTP knobs, "toggles + Advanced" UI (mid-implementation pickup)
+# HANDOVER — RTSP/RTP knobs, "toggles + Advanced" UI ✅ CODE-COMPLETE
 
-**For a fresh coding-context session.** Implementation of the 5 new RTSP/RTP dashboard knobs is **half done**.
-The C# layers are complete; the web layer + verification remain. Every remaining edit is pre-worked below as
-exact OLD→NEW against the **current** files (re-anchored this session). Apply mechanically, then run the gates.
+**STATUS (2026-06-05): DONE — all tasks 1–8 complete.** Both the C# layers AND the web layer are applied, and
+all 8 verification gates passed (build 0/0, grep-clean, els↔id + gather↔snapshot parity, old-file round-trip
+reasoned, probesize sentinel, toggle behaviour; bonus `node --check web/app.js` OK). The last Config.cs
+doc-comment that still named the dropped booleans was reworded, so the tree is fully grep-clean.
+**Only Phase-6 field tests remain** (real camera rig + GPU — see "Out of scope" below). The OLD→NEW edit
+blocks below are kept for the historical record; everything in them is already applied.
 
 **Project.** `C:\Users\gregor\Downloads\Dev\mpv` — MpvGrid, .NET 9 WinForms 2×2 camera wall on libmpv
 (pinned `libmpv-2.dll`, client API 2.5 / mpv 0.41.0). Namespace `MpvGrid`, interop ns `MpvGrid.Mpv`.
@@ -544,5 +547,5 @@ or `mpv_get_property` before set).
   predates the toggles+Advanced UI decision). C# edits there were correct in intent and are now DONE.
 - Plan brief: `HANDOVER-rtsp-rtp-ui-knobs.md`. Memory: `rtsp-rtp-knobs`, `mpv-migration`,
   `grid-count-feature` (grid-count is sequenced AFTER this).
-- Task list (TaskList): #1–5 completed; **#6 index.html (+6b style.css), #7 app.js, #8 verify** remain.
-  The remaining work is **web-layer only** + verification — no more C# edits.
+- Task list (TaskList): #1–8 ALL completed (2026-06-05). C# layers + web layer applied; all 8 verify gates
+  passed. No code work remains — only Phase-6 field tests on the real camera rig.

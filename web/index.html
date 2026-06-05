@@ -149,6 +149,11 @@
                    title="Network caching buffer (milliseconds).&#10;How much incoming video mpv buffers before showing it on screen.&#10;Higher = smoother playback on a flaky/busy network, but more delay behind real time.&#10;Lower = closer to live, but more likely to stutter if the network hiccups.&#10;Default: 10000 (10 seconds) — a deep buffer that rides out a poor link.  Range: 0–60000 ms." />
           </div>
           <div class="setting">
+            <label for="network-timeout" title="Network timeout (seconds).&#10;How long the engine waits for a stream to start sending data before giving up on the connection — covers a camera that's unplugged or unreachable, where connecting would otherwise hang. The stall timeout only covers a stream that was already playing; this covers one that never starts.&#10;Lower = notices a dead camera sooner; higher = more patient on a slow link.&#10;Set to 0 to never time out. Applies to every feed.&#10;Default: 60.  Range: 0–3600 s.">Net timeout <span class="unit">s</span></label>
+            <input type="number" id="network-timeout" min="0" max="3600" step="1"
+                   title="Network timeout (seconds).&#10;How long the engine waits for a stream to start sending data before giving up on the connection — covers a camera that's unplugged or unreachable, where connecting would otherwise hang. The stall timeout only covers a stream that was already playing; this covers one that never starts.&#10;Lower = notices a dead camera sooner; higher = more patient on a slow link.&#10;Set to 0 to never time out. Applies to every feed.&#10;Default: 60.  Range: 0–3600 s." />
+          </div>
+          <div class="setting">
             <label for="stall" title="Stall (freeze) timeout (milliseconds).&#10;If a stream sends no new video for this long, the app assumes it has frozen and automatically reconnects it.&#10;Lower = recovers from freezes faster, but may reconnect on brief, harmless hiccups.&#10;Higher = more patient before giving up on a stalled feed.&#10;Default: 8000 (8 seconds).  Range: 1000–60000 ms.">Stall timeout <span class="unit">ms</span></label>
             <input type="number" id="stall" min="1000" max="60000" step="250"
                    title="Stall (freeze) timeout (milliseconds).&#10;If a stream sends no new video for this long, the app assumes it has frozen and automatically reconnects it.&#10;Lower = recovers from freezes faster, but may reconnect on brief, harmless hiccups.&#10;Higher = more patient before giving up on a stalled feed.&#10;Default: 8000 (8 seconds).  Range: 1000–60000 ms." />
@@ -176,15 +181,15 @@
         </div>
 
         <div class="settings-toggles">
-          <label class="switch" title="Receive RTSP camera streams over TCP instead of UDP.&#10;OFF (default) = UDP, matching the engine default: it negotiates UDP and auto-falls back to TCP on its own, which is what lets most cameras connect unattended.&#10;ON = force interleaved TCP — steadier on a lossy/congested link, but a UDP-only camera may then fail to connect at all. Turn ON only for a source that needs it (e.g. behind a NAT/firewall that blocks UDP).&#10;Only affects 'rtsp://' sources.&#10;Default: OFF (UDP).">
-            <input type="checkbox" id="rtsp-tcp" />
+          <label class="switch" title="Faster startup.&#10;Make cameras appear on screen quicker by letting the engine spend less time inspecting each stream before it plays.&#10;ON = lower connect latency; very occasionally an unusual stream is misread.&#10;Fine-tune the exact values under 'Advanced' (Startup wait / Startup data) — turning this off resets them.&#10;Applies to every feed.&#10;Default: OFF.">
+            <input type="checkbox" id="faster-startup" />
             <span class="switch-track"><span class="switch-thumb"></span></span>
-            <span class="switch-label">RTSP over TCP</span>
+            <span class="switch-label">Faster startup</span>
           </label>
-          <label class="switch" title="Tunnel RTSP (and its video) inside HTTP.&#10;Use this when a firewall only allows ordinary web (HTTP) traffic out and blocks the normal camera ports. Implies TCP, so it overrides 'RTSP over TCP' when on.&#10;Slightly more overhead than plain TCP — leave OFF unless a stream won't connect any other way. Only affects 'rtsp://' sources.&#10;Default: OFF.">
-            <input type="checkbox" id="rtsp-http" />
+          <label class="switch" title="Smooth choppy video.&#10;Buffer and re-order incoming video packets to iron out stutter on a network that delivers them out of order or in bursts — at the cost of a little extra delay.&#10;Set the exact buffer depth under 'Advanced' (Jitter buffer); turning this off resets it.&#10;Affects 'rtsp://' and 'rtp://' feeds.&#10;Default: OFF.">
+            <input type="checkbox" id="smooth-video" />
             <span class="switch-track"><span class="switch-thumb"></span></span>
-            <span class="switch-label">RTSP over HTTP (tunnel)</span>
+            <span class="switch-label">Smooth choppy video</span>
           </label>
           <label class="switch" title="Skip the H.264 de-blocking 'loop filter' while decoding.&#10;Lowers CPU/GPU load per stream — handy when running several feeds at once or on a weaker PC — at the cost of slightly softer, more 'blocky' video.&#10;Affects picture quality only; it does not change reliability.&#10;Default: OFF.">
             <input type="checkbox" id="skip-loop" />
@@ -201,9 +206,15 @@
         <div class="settings-sub">RTP / RTSP transport</div>
         <div class="settings-grid">
           <div class="setting">
-            <label for="rtsp-frame-buffer" title="RTSP receive frame buffer (bytes).&#10;How big a single video frame the engine will accept from an RTSP camera. High-resolution / high-bitrate cameras can send frames bigger than the default, which shows up as torn or dropped pictures — raising this fixes that, at the cost of a little memory per stream.&#10;Only affects 'rtsp://' sources.&#10;Default: 0 (use the engine default).  Range: 0–10000000.">RTSP frame buf <span class="unit">B</span></label>
-            <input type="number" id="rtsp-frame-buffer" min="0" max="10000000" step="10000"
-                   title="RTSP receive frame buffer (bytes).&#10;How big a single video frame the engine will accept from an RTSP camera. High-resolution / high-bitrate cameras can send frames bigger than the default, which shows up as torn or dropped pictures — raising this fixes that, at the cost of a little memory per stream.&#10;Only affects 'rtsp://' sources.&#10;Default: 0 (use the engine default).  Range: 0–10000000." />
+            <label for="rtsp-transport" title="RTSP transport.&#10;How the engine carries an RTSP camera's video.&#10;Auto (recommended) = let ffmpeg negotiate — UDP with an automatic TCP fallback — the default that lets most cameras connect unattended.&#10;UDP = force plain UDP (lowest latency, but lossy on a congested link).&#10;TCP = force interleaved TCP (steadier on a lossy link; a UDP-only camera may then fail to connect).&#10;HTTP = tunnel RTSP inside HTTP (gets through firewalls that only allow web traffic).&#10;UDP multicast = receive a multicast RTP session (rare).&#10;Only affects 'rtsp://' sources.&#10;Default: Auto.">RTSP transport</label>
+            <select id="rtsp-transport"
+                    title="RTSP transport.&#10;How the engine carries an RTSP camera's video.&#10;Auto (recommended) = let ffmpeg negotiate — UDP with an automatic TCP fallback — the default that lets most cameras connect unattended.&#10;UDP = force plain UDP (lowest latency, but lossy on a congested link).&#10;TCP = force interleaved TCP (steadier on a lossy link; a UDP-only camera may then fail to connect).&#10;HTTP = tunnel RTSP inside HTTP (gets through firewalls that only allow web traffic).&#10;UDP multicast = receive a multicast RTP session (rare).&#10;Only affects 'rtsp://' sources.&#10;Default: Auto.">
+              <option value="lavf">Auto (recommended)</option>
+              <option value="udp">UDP</option>
+              <option value="tcp">TCP</option>
+              <option value="http">HTTP (firewall tunnel)</option>
+              <option value="udp_multicast">UDP multicast (rare)</option>
+            </select>
           </div>
           <div class="setting">
             <label for="rtp-timeout" title="RTP receive timeout (seconds).&#10;How long the engine waits with no incoming RTP packets before deciding the source is dead and giving up (the app then reconnects it). Lower = notices a dropped sender sooner; higher = more patient on a bursty link.&#10;Set to -1 to never time out. Only affects 'rtp://' sources.&#10;Default: 5.  Range: -1–3600.">RTP timeout <span class="unit">s</span></label>
@@ -211,6 +222,32 @@
                    title="RTP receive timeout (seconds).&#10;How long the engine waits with no incoming RTP packets before deciding the source is dead and giving up (the app then reconnects it). Lower = notices a dropped sender sooner; higher = more patient on a bursty link.&#10;Set to -1 to never time out. Only affects 'rtp://' sources.&#10;Default: 5.  Range: -1–3600." />
           </div>
         </div>
+
+        <details class="settings-advanced">
+          <summary>Advanced</summary>
+          <div class="settings-grid">
+            <div class="setting">
+              <label for="analyze-duration" title="Startup wait — analyze duration (milliseconds).&#10;How long the engine inspects an incoming stream before it starts playing, to work out its format. Lowering it makes a stream appear faster; too low and an unusual stream may be misdetected.&#10;Leave at 0 to use the engine default. Driven by the 'Faster startup' toggle. Applies to every feed.&#10;Default: 0 (engine default).  Range: 0–60000 ms.">Startup wait <span class="unit">ms</span></label>
+              <input type="number" id="analyze-duration" min="0" max="60000" step="100"
+                     title="Startup wait — analyze duration (milliseconds).&#10;How long the engine inspects an incoming stream before it starts playing, to work out its format. Lowering it makes a stream appear faster; too low and an unusual stream may be misdetected.&#10;Leave at 0 to use the engine default. Driven by the 'Faster startup' toggle. Applies to every feed.&#10;Default: 0 (engine default).  Range: 0–60000 ms." />
+            </div>
+            <div class="setting">
+              <label for="probesize" title="Startup data — probe size (kilobytes).&#10;How much of an incoming stream the engine reads before it starts playing, to work out its format. Lowering it shaves connect latency; too low and an unusual stream may be misdetected.&#10;Leave at 0 to use the engine default (about 5000 KB). Driven by the 'Faster startup' toggle. Applies to every feed.&#10;Default: 0 (engine default).  Range: 0–100000 KB.">Startup data <span class="unit">KB</span></label>
+              <input type="number" id="probesize" min="0" max="100000" step="100"
+                     title="Startup data — probe size (kilobytes).&#10;How much of an incoming stream the engine reads before it starts playing, to work out its format. Lowering it shaves connect latency; too low and an unusual stream may be misdetected.&#10;Leave at 0 to use the engine default (about 5000 KB). Driven by the 'Faster startup' toggle. Applies to every feed.&#10;Default: 0 (engine default).  Range: 0–100000 KB." />
+            </div>
+            <div class="setting">
+              <label for="reorder-queue" title="Jitter buffer — reorder queue (packets).&#10;How many out-of-order packets the engine holds and re-sorts before decoding. A bigger buffer smooths a network that delivers packets out of order or in bursts (fewer glitches), at the cost of a little extra latency.&#10;Leave at 0 to use the engine default. Driven by the 'Smooth choppy video' toggle. Affects 'rtsp://' and 'rtp://' sources.&#10;Default: 0 (engine default).  Range: 0–10000.">Jitter buffer <span class="unit">pkts</span></label>
+              <input type="number" id="reorder-queue" min="0" max="10000" step="10"
+                     title="Jitter buffer — reorder queue (packets).&#10;How many out-of-order packets the engine holds and re-sorts before decoding. A bigger buffer smooths a network that delivers packets out of order or in bursts (fewer glitches), at the cost of a little extra latency.&#10;Leave at 0 to use the engine default. Driven by the 'Smooth choppy video' toggle. Affects 'rtsp://' and 'rtp://' sources.&#10;Default: 0 (engine default).  Range: 0–10000." />
+            </div>
+            <div class="setting">
+              <label for="rtsp-frame-buffer" title="RTSP receive frame buffer (bytes).&#10;How big a single video frame the engine will accept from an RTSP camera. High-resolution / high-bitrate cameras can send frames bigger than the default, which shows up as torn or dropped pictures — raising this fixes that, at the cost of a little memory per stream.&#10;Only affects 'rtsp://' sources.&#10;Default: 0 (use the engine default).  Range: 0–10000000.">RTSP frame buf <span class="unit">B</span></label>
+              <input type="number" id="rtsp-frame-buffer" min="0" max="10000000" step="10000"
+                     title="RTSP receive frame buffer (bytes).&#10;How big a single video frame the engine will accept from an RTSP camera. High-resolution / high-bitrate cameras can send frames bigger than the default, which shows up as torn or dropped pictures — raising this fixes that, at the cost of a little memory per stream.&#10;Only affects 'rtsp://' sources.&#10;Default: 0 (use the engine default).  Range: 0–10000000." />
+            </div>
+          </div>
+        </details>
 
         <div class="settings-args">
           <label for="extra-args" title="Advanced: extra options passed straight to the mpv engine at startup.&#10;For power users — one option per line, or separated by spaces (e.g. --hwdec=no).&#10;Leave blank unless you know the exact mpv option you need; a bad option can stop streams from playing. Takes effect only after 'Save' followed by 'Restart Display'.">Extra mpv options (space / newline separated)</label>

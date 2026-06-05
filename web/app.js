@@ -10,6 +10,13 @@
 (function () {
   const token = new URLSearchParams(location.search).get('token') || '';
 
+  // "Faster startup" / "Smooth choppy video" toggle presets — values written into the raw Advanced fields
+  // when a toggle is switched ON (OFF writes 0 = engine default). Sensible starting points; tune the exact
+  // numbers under Advanced. PRESET_JITTER_PKTS especially is a Phase-6 field-test value.
+  const PRESET_ANALYZE_MS = 500;   // demuxer-lavf-analyzeduration
+  const PRESET_PROBE_KB = 500;     // demuxer-lavf-probesize (shown in KB; ×1000 → bytes on the wire)
+  const PRESET_JITTER_PKTS = 50;   // reorder_queue_size
+
   const els = {
     banner: document.getElementById('banner'),
     status: document.getElementById('status'),
@@ -42,15 +49,22 @@
     // mpv settings panel (the whole <fieldset> disables together when the grid is down)
     settingsFields: document.getElementById('settings-fields'),
     netCache: document.getElementById('net-cache'),
+    networkTimeout: document.getElementById('network-timeout'),
     stall: document.getElementById('stall'),
     backoffStart: document.getElementById('backoff-start'),
     backoffMax: document.getElementById('backoff-max'),
     backoffReset: document.getElementById('backoff-reset'),
     backoffFactor: document.getElementById('backoff-factor'),
-    rtspTcp: document.getElementById('rtsp-tcp'),
-    rtspHttp: document.getElementById('rtsp-http'),
-    rtspFrameBuffer: document.getElementById('rtsp-frame-buffer'),
+    rtspTransport: document.getElementById('rtsp-transport'),
     rtpTimeout: document.getElementById('rtp-timeout'),
+    // "Faster startup" / "Smooth choppy video" are friendly toggles over the raw Advanced numbers below;
+    // the numbers are the source of truth (gatherSettings reads them), the toggles just preset/clear them.
+    fasterStartup: document.getElementById('faster-startup'),
+    smoothVideo: document.getElementById('smooth-video'),
+    analyzeDuration: document.getElementById('analyze-duration'),
+    probesize: document.getElementById('probesize'),
+    reorderQueue: document.getElementById('reorder-queue'),
+    rtspFrameBuffer: document.getElementById('rtsp-frame-buffer'),
     skipLoop: document.getElementById('skip-loop'),
     hwDecode: document.getElementById('hw-decode'),
     extraArgs: document.getElementById('extra-args'),
@@ -137,6 +151,25 @@
       feedback(els.settingsFeedback, ok ? 'Saved to Config' : "Couldn't reach the grid.", ok ? 'ok' : 'warn');
     });
 
+    // "Faster startup" / "Smooth choppy video": flipping a toggle fills in (ON) or clears (OFF) the raw
+    // Advanced fields it represents; editing those fields keeps the toggle in sync. The fields are what get
+    // sent (gatherSettings), so there's a single source of truth and Apply/Save need no toggle awareness.
+    els.fasterStartup.addEventListener('change', () => {
+      els.analyzeDuration.value = els.fasterStartup.checked ? String(PRESET_ANALYZE_MS) : '0';
+      els.probesize.value = els.fasterStartup.checked ? String(PRESET_PROBE_KB) : '0';
+    });
+    els.smoothVideo.addEventListener('change', () => {
+      els.reorderQueue.value = els.smoothVideo.checked ? String(PRESET_JITTER_PKTS) : '0';
+    });
+    const syncFasterStartup = () => {
+      els.fasterStartup.checked = intVal(els.analyzeDuration) > 0 || intVal(els.probesize) > 0;
+    };
+    els.analyzeDuration.addEventListener('input', syncFasterStartup);
+    els.probesize.addEventListener('input', syncFasterStartup);
+    els.reorderQueue.addEventListener('input', () => {
+      els.smoothVideo.checked = intVal(els.reorderQueue) > 0;
+    });
+
     // ---- power controls (feed toggle / shutdown / exit) — these stay enabled even while the grid is down ----
 
     // Master feed switch: true = start the grid, false = stop it. Confirm on STOP only. We never optimistically
@@ -183,14 +216,18 @@
       backoffMaxMs: intVal(els.backoffMax),
       backoffResetMs: intVal(els.backoffReset),
       backoffFactor: floatVal(els.backoffFactor),
-      rtspOverTcp: els.rtspTcp.checked,
+      networkTimeoutSec: intVal(els.networkTimeout),
       skipLoopFilter: els.skipLoop.checked,
       hwDecode: els.hwDecode.checked,
       extraMpvArgs: els.extraArgs.value.split(/\s+/).filter(Boolean),
+      // Low-latency connect (the "Faster startup" toggle drives these two raw fields; KB → bytes on the wire)
+      demuxAnalyzeDurationMs: intVal(els.analyzeDuration),
+      demuxProbesizeBytes: intVal(els.probesize) * 1000,
       // RTP / RTSP transport (camelCase = SettingsSnapshot fields; server clamps to range)
-      rtspHttpTunnel: els.rtspHttp.checked,
+      rtspTransport: els.rtspTransport.value,
       rtspFrameBufferSizeBytes: intVal(els.rtspFrameBuffer),
       rtpTimeoutSec: intVal(els.rtpTimeout),
+      reorderQueueSize: intVal(els.reorderQueue),   // "Smooth choppy video" toggle drives this raw field
     };
   }
 
@@ -339,15 +376,21 @@
 
     const s = f.settings || {};
     setNum(els.netCache, s.networkCachingMs);
+    setNum(els.networkTimeout, s.networkTimeoutSec);
     setNum(els.stall, s.stallTimeoutMs);
     setNum(els.backoffStart, s.backoffStartMs);
     setNum(els.backoffMax, s.backoffMaxMs);
     setNum(els.backoffReset, s.backoffResetMs);
     setNum(els.backoffFactor, s.backoffFactor);
-    setCheck(els.rtspTcp, s.rtspOverTcp);
-    setCheck(els.rtspHttp, s.rtspHttpTunnel);
+    setText(els.rtspTransport, s.rtspTransport || 'lavf');   // <select>: .value matches an <option>
     setNum(els.rtspFrameBuffer, s.rtspFrameBufferSizeBytes);
     setNum(els.rtpTimeout, s.rtpTimeoutSec);
+    // Low-latency connect: probesize bytes → KB for display; derive the two friendly toggles from the values.
+    setNum(els.analyzeDuration, s.demuxAnalyzeDurationMs);
+    setNum(els.probesize, s.demuxProbesizeBytes != null ? Math.round(s.demuxProbesizeBytes / 1000) : null);
+    setNum(els.reorderQueue, s.reorderQueueSize);
+    setCheck(els.fasterStartup, (s.demuxAnalyzeDurationMs > 0) || (s.demuxProbesizeBytes > 0));
+    setCheck(els.smoothVideo, s.reorderQueueSize > 0);
     setCheck(els.skipLoop, s.skipLoopFilter);
     setCheck(els.hwDecode, s.hwDecode);
     setText(els.extraArgs, (s.extraMpvArgs || []).join('\n'));
@@ -565,6 +608,128 @@
     return rows.map((r) => (r.url && !r.url.disabled ? r.url.value.trim() : ''));
   }
 
+  // ---- custom tooltips ----------------------------------------------------
+  // Replaces the browser's native title= bubbles with a single floating panel styled in the app's theme
+  // (Barlow Condensed, control-room surfaces — see .tooltip in style.css). Works by delegation: the first
+  // time an element carrying a `title` is hovered/focused, its text is moved into `data-tip` and the
+  // `title` removed (so the OS bubble never fires), then rendered into the shared panel. A live-updated
+  // title (e.g. the per-feed rows) wins again on its next hover, so dynamic tooltips keep working.
+  function wireTooltips() {
+    const tip = document.createElement('div');
+    tip.className = 'tooltip';
+    tip.setAttribute('role', 'tooltip');
+    const arrow = document.createElement('span'); arrow.className = 'tooltip-arrow';
+    const inner = document.createElement('div'); inner.className = 'tooltip-inner';
+    tip.append(arrow, inner);
+    tip.style.display = 'none';
+    document.body.appendChild(tip);
+
+    let current = null;   // element the tooltip is currently describing
+    let hideTimer = 0;
+
+    // title wins (covers live-updated titles); else the stashed data-tip. Adopting once kills the OS bubble.
+    function textFor(el) {
+      if (el.hasAttribute('title')) {
+        const t = el.getAttribute('title');
+        el.setAttribute('data-tip', t);
+        el.removeAttribute('title');
+        return t;
+      }
+      return el.getAttribute('data-tip') || '';
+    }
+
+    // Lay the help text out: first line → heading, trailing "Default: …" line → meta footer, rest → body.
+    function build(text) {
+      inner.textContent = '';
+      const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (!lines.length) return;
+
+      let meta = '';
+      if (lines.length > 1 && /^Default:/i.test(lines[lines.length - 1])) meta = lines.pop();
+
+      if (lines.length > 1) {
+        const h = document.createElement('div'); h.className = 'tooltip-title';
+        h.textContent = lines.shift();
+        inner.appendChild(h);
+      }
+      for (const line of lines) {
+        const p = document.createElement('div'); p.className = 'tooltip-body';
+        p.textContent = line;
+        inner.appendChild(p);
+      }
+      if (meta) {
+        const m = document.createElement('div'); m.className = 'tooltip-meta';
+        m.textContent = meta;
+        inner.appendChild(m);
+      }
+    }
+
+    function position(el) {
+      const r = el.getBoundingClientRect();
+      const gap = 8, edge = 6;
+      const tw = tip.offsetWidth, th = tip.offsetHeight;   // reading offset* also flushes layout before we fade in
+
+      const above = r.top >= th + gap + edge;              // prefer above; flip below if it wouldn't fit
+      const top = above ? r.top - th - gap : r.bottom + gap;
+
+      let left = r.left + r.width / 2 - tw / 2;             // centre on the target, then clamp to the viewport
+      left = Math.max(edge, Math.min(left, window.innerWidth - tw - edge));
+
+      tip.style.left = Math.round(left) + 'px';
+      tip.style.top = Math.round(top) + 'px';
+      tip.classList.toggle('above', above);
+      tip.classList.toggle('below', !above);
+
+      // Caret tracks the target centre even when the box is clamped (10px wide → offset by half).
+      const cx = r.left + r.width / 2 - left;
+      arrow.style.left = (Math.max(12, Math.min(cx, tw - 12)) - 5) + 'px';
+    }
+
+    function show(el) {
+      const text = textFor(el);
+      if (!text) return;
+      current = el;
+      clearTimeout(hideTimer);
+      build(text);
+      tip.style.display = 'block';
+      position(el);              // forces a layout flush while opacity is still 0, so 'show' can transition in
+      tip.classList.add('show');
+    }
+
+    function hide() {
+      current = null;
+      tip.classList.remove('show');
+      hideTimer = setTimeout(() => { tip.style.display = 'none'; }, 140);
+    }
+
+    // Nearest ancestor that carries tooltip text.
+    function tipTarget(node) {
+      for (let el = node; el && el !== document.body; el = el.parentElement) {
+        if (el.nodeType === 1 && (el.hasAttribute('title') || el.hasAttribute('data-tip'))) return el;
+      }
+      return null;
+    }
+
+    document.addEventListener('pointerover', (e) => {
+      const el = tipTarget(e.target);
+      if (el && el !== current) show(el);
+    });
+    document.addEventListener('pointerout', (e) => {
+      if (!current) return;
+      if (e.relatedTarget && current.contains(e.relatedTarget)) return;   // still inside the same target
+      if (e.relatedTarget && tipTarget(e.relatedTarget)) return;          // straight onto another → let pointerover swap
+      hide();
+    });
+    // Keyboard parity.
+    document.addEventListener('focusin', (e) => { const el = tipTarget(e.target); if (el) show(el); });
+    document.addEventListener('focusout', () => { if (current) hide(); });
+    // A fixed panel detaches from its target on scroll/resize, and shouldn't linger over a just-clicked control.
+    window.addEventListener('scroll', () => { if (current) hide(); }, true);
+    window.addEventListener('resize', () => { if (current) hide(); });
+    document.addEventListener('click', () => { if (current) hide(); });
+  }
+
   wireControls();
+  wireTooltips();
   connect();
 })();

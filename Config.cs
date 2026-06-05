@@ -66,7 +66,7 @@ internal sealed class Config
     /// <summary>RTSP transport mode (mpv <c>rtsp-transport</c>): one of <c>lavf</c> (default — ffmpeg negotiates
     /// UDP with an automatic TCP fallback, the unattended-connect default), <c>udp</c>, <c>tcp</c>, <c>http</c>
     /// (tunnel through an HTTP-only firewall), or <c>udp_multicast</c>. RTSP feeds only. Replaces the former
-    /// RtspOverTcp / RtspHttpTunnel booleans. <see cref="Normalize"/> guarantees a valid value (blank or
+    /// two RTSP-transport booleans. <see cref="Normalize"/> guarantees a valid value (blank or
     /// unrecognised → <c>lavf</c>).</summary>
     public string RtspTransport { get; set; } = "lavf";
     /// <summary>RTSP receive frame buffer (ffmpeg <c>buffer_size</c> via <c>demuxer-lavf-o</c>, bytes). 0 = engine
@@ -98,9 +98,10 @@ internal sealed class Config
     public int SupervisorBackoffMaxMs { get; set; } = 15000;
 
     // ---- control dashboard (browser bridge, D-DASH-1) ----
-    /// <summary>Preferred loopback port for the dashboard's HTTP/SSE bridge. The bridge falls back to a
-    /// short scan from here if it's taken, so this is just the starting point.</summary>
-    public int DashboardHttpPort { get; set; } = 17653;
+    /// <summary>Fixed TCP port the dashboard's HTTP/SSE bridge binds for LAN access. The control panel is
+    /// reached at <c>http://&lt;this-pc-ip&gt;:PORT</c> from any device on the local network, so this is a
+    /// pinned, type-able port (no scan) — pick one that's free on the unit.</summary>
+    public int DashboardHttpPort { get; set; } = 8080;
 
     [JsonIgnore]
     public string SourcePath { get; private set; } = "";
@@ -217,8 +218,8 @@ internal sealed class Config
         if (SupervisorMinHealthyMs < 0) SupervisorMinHealthyMs = 0;
         if (SupervisorBackoffMaxMs < 1000) SupervisorBackoffMaxMs = 1000;
 
-        // Keep the preferred port in the usable, non-privileged range (the bridge scans upward from here).
-        if (DashboardHttpPort < 1024 || DashboardHttpPort > 65000) DashboardHttpPort = 17653;
+        // Keep the dashboard port in the usable, non-privileged range.
+        if (DashboardHttpPort < 1024 || DashboardHttpPort > 65000) DashboardHttpPort = 8080;
     }
 
     /// <summary>Resolve LogPath against the exe directory when it is relative.</summary>
