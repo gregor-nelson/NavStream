@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>MpvGrid — Control</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Hidden inline-SVG sprite: line icons for the header telemetry chips (stroke = currentColor so each
+       chip tints them via its own colour state). Referenced below with <use href="#icon-…">. -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false" width="0" height="0">
+    <defs>
+      <symbol id="icon-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </symbol>
+      <symbol id="icon-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="13 2 4 14 11 14 11 22 20 10 13 10 13 2" />
+      </symbol>
+      <symbol id="icon-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <polyline points="12 7 12 12 15 14" />
+      </symbol>
+      <symbol id="icon-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="12" rx="2" />
+        <line x1="8" y1="20" x2="16" y2="20" />
+        <line x1="12" y1="16" x2="12" y2="20" />
+      </symbol>
+      <symbol id="icon-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3.2c2.7 3 5.2 5.9 5.2 9.1a5.2 5.2 0 0 1-10.4 0c0-3.2 2.5-6.1 5.2-9.1z" />
+      </symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-logo" src="/favicon.ico" alt="InterMoor" />
+    </div>
+    <div class="hdr-divider"></div>
+    <div class="hdr-identity">
+      <div id="banner" class="banner">Connecting to control bridge…</div>
+      <div id="hdr-pid" class="hdr-pid">—</div>
+      <div id="status" class="status"></div>
+    </div>
+    <div class="hdr-telemetry">
+      <span class="chip" id="chip-streams" title="Streams healthy / total, with weak &amp; down counts.">
+        <svg class="chip-icon"><use href="#icon-grid" /></svg>
+        <span class="chip-val" id="streams-val">—</span>
+        <span class="tally-dot green" id="tally-healthy"></span>
+        <span class="tally-dot amber" id="tally-warn"></span>
+        <span class="tally-dot red" id="tally-down"></span>
+      </span>
+      <span class="chip" id="chip-bitrate" title="Total incoming bitrate across all streams.">
+        <svg class="chip-icon"><use href="#icon-bolt" /></svg>
+        <span class="chip-val" id="bitrate-val">—</span>
+      </span>
+      <span class="chip" id="chip-fresh" title="Age of the latest telemetry frame from the grid.">
+        <svg class="chip-icon"><use href="#icon-clock" /></svg>
+        <span class="chip-val" id="fresh-val">—</span>
+      </span>
+      <span class="chip" id="chip-monitor" title="Monitor the render grid is displayed on.">
+        <svg class="chip-icon"><use href="#icon-monitor" /></svg>
+        <span class="chip-val" id="monitor-val">—</span>
+      </span>
+      <span class="chip" id="chip-drops" title="Total lost pictures (dropped frames) across all streams.">
+        <svg class="chip-icon"><use href="#icon-drop" /></svg>
+        <span class="chip-val" id="drops-val">—</span>
+      </span>
+    </div>
+  </header>
+
+  <section class="cmdbar">
+    <label class="switch" title="On = streams running. Off = fully stop &amp; close the video feed (the grid goes dark) while keeping this dashboard open. Switch back on to relaunch the feed.">
+      <input type="checkbox" id="feed-toggle" />
+      <span class="switch-track"><span class="switch-thumb"></span></span>
+      <span class="switch-label">Live video feed</span>
+    </label>
+    <button id="restart" type="button" class="btn btn-primary"
+            title="Restart the whole 4-feed display now (the grid blinks ~1 s). Enabled only while the grid is connected.">Restart Display</button>
+    <button id="shutdown" type="button" class="btn btn-danger"
+            title="Disconnect every stream and force-kill all MpvGrid render processes (including any orphaned ones). This dashboard stays open — switch 'Live video feed' back on to relaunch.">Shutdown Displays</button>
+    <span id="cmd-feedback" class="feedback"></span>
+    <button id="exit" type="button" class="btn btn-danger"
+            title="Exit MpvGrid completely — stop every stream and close the whole application (render + this dashboard).">Exit Application</button>
+  </section>
+
+  <main>
+    <section class="panel" id="display-panel">
+      <div class="panel-head">
+        <h2>Display</h2>
+        <span class="panel-sub">overlay · borderless · monitor</span>
+      </div>
+      <div class="controls">
+        <label class="switch">
+          <input type="checkbox" id="overlay" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-label">Overlay badges <kbd>H</kbd></span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="borderless" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-label">Borderless</span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="always-on-top" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-label">Always on top</span>
+        </label>
+        <div class="control-field">
+          <label for="monitor">Monitor</label>
+          <select id="monitor"></select>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Streams</h2>
+        <span class="panel-sub">vessel name · source URL · live monitor</span>
+      </div>
+      <div id="feeds" class="feeds"></div>
+      <div class="panel-foot">
+        <button id="save" type="button" class="btn btn-primary">Save to Config</button>
+        <span id="streams-feedback" class="feedback"></span>
+        <span class="panel-hint">Edit a stream's name or source URL (Enter applies it live), then Save to Config to keep it. The switch by each stream shows just the vessel name + a health dot.</span>
+      </div>
+    </section>
+
+    <section class="panel" id="settings-panel">
+      <div class="panel-head">
+        <h2>mpv Settings</h2>
+        <span class="panel-sub">Apply = this session · Save = write to config</span>
+      </div>
+      <fieldset id="settings-fields" class="settings-fields">
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="net-cache" title="Network caching buffer (milliseconds).&#10;How much incoming video mpv buffers before showing it on screen.&#10;Higher = smoother playback on a flaky/busy network, but more delay behind real time.&#10;Lower = closer to live, but more likely to stutter if the network hiccups.&#10;Default: 10000 (10 seconds) — a deep buffer that rides out a poor link.  Range: 0–60000 ms.">Net cache <span class="unit">ms</span></label>
+            <input type="number" id="net-cache" min="0" max="60000" step="50"
+                   title="Network caching buffer (milliseconds).&#10;How much incoming video mpv buffers before showing it on screen.&#10;Higher = smoother playback on a flaky/busy network, but more delay behind real time.&#10;Lower = closer to live, but more likely to stutter if the network hiccups.&#10;Default: 10000 (10 seconds) — a deep buffer that rides out a poor link.  Range: 0–60000 ms." />
+          </div>
+          <div class="setting">
+            <label for="stall" title="Stall (freeze) timeout (milliseconds).&#10;If a stream sends no new video for this long, the app assumes it has frozen and automatically reconnects it.&#10;Lower = recovers from freezes faster, but may reconnect on brief, harmless hiccups.&#10;Higher = more patient before giving up on a stalled feed.&#10;Default: 8000 (8 seconds).  Range: 1000–60000 ms.">Stall timeout <span class="unit">ms</span></label>
+            <input type="number" id="stall" min="1000" max="60000" step="250"
+                   title="Stall (freeze) timeout (milliseconds).&#10;If a stream sends no new video for this long, the app assumes it has frozen and automatically reconnects it.&#10;Lower = recovers from freezes faster, but may reconnect on brief, harmless hiccups.&#10;Higher = more patient before giving up on a stalled feed.&#10;Default: 8000 (8 seconds).  Range: 1000–60000 ms." />
+          </div>
+          <div class="setting">
+            <label for="backoff-start" title="Reconnect backoff — starting delay (milliseconds).&#10;After a stream drops, how long to wait before the FIRST reconnect attempt.&#10;Each further failed attempt waits longer (see 'Factor'), up to the 'Backoff max' limit.&#10;Lower = retries sooner; higher = gentler on the network/camera after a drop.&#10;Default: 2000 (2 seconds).  Range: 100–60000 ms.">Backoff start <span class="unit">ms</span></label>
+            <input type="number" id="backoff-start" min="100" max="60000" step="100"
+                   title="Reconnect backoff — starting delay (milliseconds).&#10;After a stream drops, how long to wait before the FIRST reconnect attempt.&#10;Each further failed attempt waits longer (see 'Factor'), up to the 'Backoff max' limit.&#10;Lower = retries sooner; higher = gentler on the network/camera after a drop.&#10;Default: 2000 (2 seconds).  Range: 100–60000 ms." />
+          </div>
+          <div class="setting">
+            <label for="backoff-max" title="Reconnect backoff — maximum delay (milliseconds).&#10;The longest the wait between reconnect attempts is allowed to grow to, however many times the stream keeps failing. Stops it retrying a dead source too often.&#10;Default: 30000 (30 seconds).  Range: 100–120000 ms.">Backoff max <span class="unit">ms</span></label>
+            <input type="number" id="backoff-max" min="100" max="120000" step="500"
+                   title="Reconnect backoff — maximum delay (milliseconds).&#10;The longest the wait between reconnect attempts is allowed to grow to, however many times the stream keeps failing. Stops it retrying a dead source too often.&#10;Default: 30000 (30 seconds).  Range: 100–120000 ms." />
+          </div>
+          <div class="setting">
+            <label for="backoff-reset" title="Reconnect backoff — reset after stable (milliseconds).&#10;Once a reconnected stream has played cleanly for this long, the retry delay drops back to the 'Backoff start' value. So an occasional blip doesn't permanently slow down future reconnects.&#10;Default: 15000 (15 seconds).  Range: 1000–120000 ms.">Backoff reset <span class="unit">ms</span></label>
+            <input type="number" id="backoff-reset" min="1000" max="120000" step="500"
+                   title="Reconnect backoff — reset after stable (milliseconds).&#10;Once a reconnected stream has played cleanly for this long, the retry delay drops back to the 'Backoff start' value. So an occasional blip doesn't permanently slow down future reconnects.&#10;Default: 15000 (15 seconds).  Range: 1000–120000 ms." />
+          </div>
+          <div class="setting">
+            <label for="backoff-factor" title="Reconnect backoff — growth multiplier.&#10;How fast the wait grows between repeated failed reconnects. Each attempt multiplies the previous delay by this number (e.g. 2.0 doubles it: 2s → 4s → 8s …), capped at 'Backoff max'. Use 1.0 for a constant delay that never grows.&#10;Default: 2.0.  Range: 1.0–10.0.">Backoff factor</label>
+            <input type="number" id="backoff-factor" min="1" max="10" step="0.1"
+                   title="Reconnect backoff — growth multiplier.&#10;How fast the wait grows between repeated failed reconnects. Each attempt multiplies the previous delay by this number (e.g. 2.0 doubles it: 2s → 4s → 8s …), capped at 'Backoff max'. Use 1.0 for a constant delay that never grows.&#10;Default: 2.0.  Range: 1.0–10.0." />
+          </div>
+        </div>
+
+        <div class="settings-toggles">
+          <label class="switch" title="Receive RTSP camera streams over TCP instead of UDP.&#10;OFF (default) = UDP, matching the engine default: it negotiates UDP and auto-falls back to TCP on its own, which is what lets most cameras connect unattended.&#10;ON = force interleaved TCP — steadier on a lossy/congested link, but a UDP-only camera may then fail to connect at all. Turn ON only for a source that needs it (e.g. behind a NAT/firewall that blocks UDP).&#10;Only affects 'rtsp://' sources.&#10;Default: OFF (UDP).">
+            <input type="checkbox" id="rtsp-tcp" />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">RTSP over TCP</span>
+          </label>
+          <label class="switch" title="Tunnel RTSP (and its video) inside HTTP.&#10;Use this when a firewall only allows ordinary web (HTTP) traffic out and blocks the normal camera ports. Implies TCP, so it overrides 'RTSP over TCP' when on.&#10;Slightly more overhead than plain TCP — leave OFF unless a stream won't connect any other way. Only affects 'rtsp://' sources.&#10;Default: OFF.">
+            <input type="checkbox" id="rtsp-http" />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">RTSP over HTTP (tunnel)</span>
+          </label>
+          <label class="switch" title="Skip the H.264 de-blocking 'loop filter' while decoding.&#10;Lowers CPU/GPU load per stream — handy when running several feeds at once or on a weaker PC — at the cost of slightly softer, more 'blocky' video.&#10;Affects picture quality only; it does not change reliability.&#10;Default: OFF.">
+            <input type="checkbox" id="skip-loop" />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">Skip loop filter</span>
+          </label>
+          <label class="switch" title="Decode video on the graphics card (Direct3D 11) instead of the CPU.&#10;Can greatly cut CPU load with many or high-resolution streams, but support varies by graphics card and driver. If a stream fails or shows artifacts with this on, the app automatically falls back to software (CPU) decoding for that feed.&#10;Leave OFF until you've confirmed it works on this PC.&#10;Default: OFF.">
+            <input type="checkbox" id="hw-decode" />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">Hardware decode (d3d11va)</span>
+          </label>
+        </div>
+
+        <div class="settings-sub">RTP / RTSP transport</div>
+        <div class="settings-grid">
+          <div class="setting">
+            <label for="rtsp-frame-buffer" title="RTSP receive frame buffer (bytes).&#10;How big a single video frame the engine will accept from an RTSP camera. High-resolution / high-bitrate cameras can send frames bigger than the default, which shows up as torn or dropped pictures — raising this fixes that, at the cost of a little memory per stream.&#10;Only affects 'rtsp://' sources.&#10;Default: 0 (use the engine default).  Range: 0–10000000.">RTSP frame buf <span class="unit">B</span></label>
+            <input type="number" id="rtsp-frame-buffer" min="0" max="10000000" step="10000"
+                   title="RTSP receive frame buffer (bytes).&#10;How big a single video frame the engine will accept from an RTSP camera. High-resolution / high-bitrate cameras can send frames bigger than the default, which shows up as torn or dropped pictures — raising this fixes that, at the cost of a little memory per stream.&#10;Only affects 'rtsp://' sources.&#10;Default: 0 (use the engine default).  Range: 0–10000000." />
+          </div>
+          <div class="setting">
+            <label for="rtp-timeout" title="RTP receive timeout (seconds).&#10;How long the engine waits with no incoming RTP packets before deciding the source is dead and giving up (the app then reconnects it). Lower = notices a dropped sender sooner; higher = more patient on a bursty link.&#10;Set to -1 to never time out. Only affects 'rtp://' sources.&#10;Default: 5.  Range: -1–3600.">RTP timeout <span class="unit">s</span></label>
+            <input type="number" id="rtp-timeout" min="-1" max="3600" step="1"
+                   title="RTP receive timeout (seconds).&#10;How long the engine waits with no incoming RTP packets before deciding the source is dead and giving up (the app then reconnects it). Lower = notices a dropped sender sooner; higher = more patient on a bursty link.&#10;Set to -1 to never time out. Only affects 'rtp://' sources.&#10;Default: 5.  Range: -1–3600." />
+          </div>
+        </div>
+
+        <div class="settings-args">
+          <label for="extra-args" title="Advanced: extra options passed straight to the mpv engine at startup.&#10;For power users — one option per line, or separated by spaces (e.g. --hwdec=no).&#10;Leave blank unless you know the exact mpv option you need; a bad option can stop streams from playing. Takes effect only after 'Save' followed by 'Restart Display'.">Extra mpv options (space / newline separated)</label>
+          <textarea id="extra-args" rows="2" spellcheck="false"
+                    title="Advanced: extra options passed straight to the mpv engine at startup.&#10;For power users — one option per line, or separated by spaces (e.g. --hwdec=no).&#10;Leave blank unless you know the exact mpv option you need; a bad option can stop streams from playing. Takes effect only after 'Save' followed by 'Restart Display'."></textarea>
+        </div>
+
+        <div class="panel-foot">
+          <button id="apply-settings" type="button" class="btn btn-primary"
+                  title="Apply these settings to the running streams now (this session only).&#10;Most knobs take effect on each stream's next reconnect. Nothing is written to disk, so the values revert to the last saved ones when the app restarts.&#10;Use 'Save' to keep them permanently.">Apply</button>
+          <button id="save-settings" type="button" class="btn"
+                  title="Save these settings to the config file (streams.json) so they persist.&#10;They become the defaults the next time the app starts, and are applied live now too.&#10;Hardware-decode and extra core args fully apply only after a 'Restart Display'.">Save</button>
+          <span id="settings-feedback" class="feedback"></span>
+          <span class="panel-hint">Hardware decode &amp; per-media changes apply on the next reconnect; extra core args after Save + Restart Display.</span>
+        </div>
+      </fieldset>
+    </section>
+  </main>
+
+  <footer class="footbar">
+    <span id="link-dot" class="dot dot-gray"></span>
+    <span id="link-text">control link…</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

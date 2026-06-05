@@ -1,0 +1,582 @@
+/* MpvGrid browser control — dark "control-room" theme.
+   Palette + typography mirror Theme.cs so the browser UI reads as the same product as the render grid. */
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('/fonts/barlow_condensed_light.ttf') format('truetype');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('/fonts/barlow_condensed_regular.ttf') format('truetype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('/fonts/barlow_condensed_medium.ttf') format('truetype');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  src: url('/fonts/barlow_condensed_semibold.ttf') format('truetype');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+
+:root {
+  --bg: #000000;
+  --surface: #0E1116;
+  --surface2: #161A21;
+  --surface3: #1F242E;
+  --outline: #2E3139;
+  --outline-soft: #1F2229;
+
+  --accent: #409CFF;
+  --accent-hi: #5DAEFF;
+  --accent-dim: #0070B8;
+
+  --green: #26C778;
+  --amber: #F5A923;
+  --red: #E5484D;
+  --gray: #6A6E72;
+
+  --t-hi: rgb(235, 235, 235);
+  --t-md: rgb(153, 153, 153);
+  --t-lo: rgb(97, 97, 97);
+
+  --font: 'Barlow Condensed', 'Segoe UI', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--t-hi);
+  font-family: var(--font);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ---- header: control-room telemetry bar ---- */
+
+.icon-sprite { position: absolute; }   /* keep the hidden <symbol> defs out of layout */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+  padding: 12px 22px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--outline);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.brand-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.hdr-divider {
+  align-self: stretch;
+  width: 1px;
+  flex: 0 0 auto;
+  background: var(--outline);
+  margin: 2px 0;
+}
+
+/* Identity block: big tri-state banner + dim Render-PID subtitle + dim status sub-line. */
+.hdr-identity {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.banner {
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: 0.4px;
+  line-height: 1.15;
+  color: var(--t-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.banner.connected { color: var(--green); }
+.banner.feedStopped { color: var(--amber); }
+.banner.down { color: var(--red); }
+
+.hdr-pid {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  color: var(--t-lo);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--t-lo);
+  margin-top: 2px;
+  min-height: 18px;
+}
+.status.warn { color: var(--amber); }
+.status.ok { color: var(--t-lo); }
+
+/* Telemetry chip cluster — pushed right; wraps below the identity block on narrow widths. */
+.hdr-telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  background: var(--surface2);
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  color: var(--t-hi);            /* icon + value follow currentColor; state classes override */
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.chip-icon {
+  width: 15px; height: 15px;
+  flex: 0 0 auto;
+  color: var(--t-md);           /* icon a touch dimmer than the value by default */
+}
+.chip-val { font-variant-numeric: tabular-nums; }
+
+/* Colour states (driven by renderHeader): green/amber/red tint the whole chip; off = dim when down. */
+.chip--green, .chip--green .chip-icon { color: var(--green); }
+.chip--amber, .chip--amber .chip-icon { color: var(--amber); }
+.chip--red,   .chip--red   .chip-icon { color: var(--red); }
+.chip--off,   .chip--off   .chip-icon { color: var(--t-lo); }
+
+/* Mini health-count badges inside the streams chip: a coloured dot + a count. */
+.tally-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--t-md);
+  font-variant-numeric: tabular-nums;
+}
+.tally-dot::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--gray);
+  flex: 0 0 auto;
+}
+.tally-dot.green::before { background: var(--green); }
+.tally-dot.amber::before { background: var(--amber); }
+.tally-dot.red::before   { background: var(--red); }
+
+/* ---- command bar: operator controls strip under the header ---- */
+
+.cmdbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  padding: 10px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--outline);
+}
+.cmdbar #exit { margin-left: auto; }
+
+/* ---- main / panel ---- */
+
+main {
+  flex: 1 1 auto;
+  padding: 18px 22px 24px;
+  overflow: auto;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  padding: 16px 16px 18px;
+}
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 2px 4px 14px;
+}
+.panel-head h2 {
+  margin: 0;
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--t-hi);
+}
+.panel-sub {
+  font-size: 14px;
+  color: var(--t-lo);
+}
+
+/* ---- feed cards ---- */
+
+.feeds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 12px;
+}
+
+.feed {
+  position: relative;
+  display: grid;
+  grid-template-columns: 6px 1fr;
+  gap: 14px;
+  background: var(--surface2);
+  border: 1px solid var(--outline-soft);
+  border-radius: 8px;
+  padding: 12px 14px 12px 0;
+  overflow: hidden;
+}
+.feed.offline { opacity: 0.55; }
+
+.feed-swatch {
+  background: var(--gray);
+  border-radius: 8px 0 0 8px;
+}
+.feed.health-healthy .feed-swatch { background: var(--green); }
+.feed.health-warn   .feed-swatch { background: var(--amber); }
+.feed.health-down   .feed-swatch { background: var(--red); }
+
+.feed-body { min-width: 0; }
+
+.feed-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.feed-title {
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: 0.6px;
+  color: var(--t-hi);
+}
+.feed-reconnect { margin-left: auto; flex: 0 0 auto; }
+.feed-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--gray);
+  flex: 0 0 auto;
+}
+.feed.health-healthy .feed-dot { background: var(--green); }
+.feed.health-warn   .feed-dot { background: var(--amber); }
+.feed.health-down   .feed-dot { background: var(--red); }
+
+.feed-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+}
+.feed-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--t-hi);
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 5px 9px;
+}
+.feed-name-input::placeholder { color: var(--t-lo); font-style: italic; font-weight: 400; }
+.feed-name-input:focus { outline: none; border-color: var(--accent); }
+.feed-name-input:disabled { opacity: 0.5; }
+
+.feed-source-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.feed-source-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--t-lo);
+}
+.feed-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--accent);
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 5px 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feed-url-input::placeholder { color: var(--t-lo); font-style: italic; font-weight: 400; }
+.feed-url-input:focus { outline: none; border-color: var(--accent); }
+.feed-url-input:disabled { opacity: 0.5; }
+
+.feed-stats {
+  font-size: 14px;
+  color: var(--t-md);
+  margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- foot bar ---- */
+
+.footbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 22px;
+  border-top: 1px solid var(--outline);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--t-lo);
+  letter-spacing: 0.5px;
+}
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot-gray  { background: var(--gray); }
+.dot-green { background: var(--green); }
+.dot-red   { background: var(--red); }
+
+/* ---- controls: display panel toolbar ---- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+  padding: 2px 4px;
+}
+.control-field { display: inline-flex; align-items: center; gap: 8px; }
+.control-field > label { font-size: 15px; color: var(--t-md); }
+
+kbd {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 5px;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  background: var(--surface3);
+  color: var(--t-md);
+}
+
+/* ---- toggle switch ---- */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px; height: 20px;
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.switch-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--t-md);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.switch input:checked + .switch-track { background: var(--accent-dim); border-color: var(--accent); }
+.switch input:checked + .switch-track .switch-thumb { transform: translateX(18px); background: var(--accent-hi); }
+.switch input:focus-visible + .switch-track { box-shadow: 0 0 0 2px var(--accent-dim); }
+.switch input:disabled + .switch-track { opacity: 0.4; }
+.switch:has(input:disabled) { cursor: default; }
+.switch-label { font-size: 15px; color: var(--t-hi); display: inline-flex; align-items: center; gap: 6px; }
+
+.switch-sm .switch-track { width: 32px; height: 18px; }
+.switch-sm .switch-thumb { width: 12px; height: 12px; }
+.switch-sm input:checked + .switch-track .switch-thumb { transform: translateX(14px); }
+
+/* ---- select ---- */
+
+select {
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--t-hi);
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+select:focus { outline: none; border-color: var(--accent); }
+select:disabled { opacity: 0.4; cursor: default; }
+
+/* ---- buttons ---- */
+
+.btn {
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: var(--t-hi);
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover:not(:disabled) { background: var(--surface2); border-color: var(--accent-dim); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn-primary { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent); }
+.btn-sm { padding: 4px 11px; font-size: 13px; letter-spacing: 0.4px; }
+
+/* ---- feedback line + panel footer ---- */
+
+.feedback { font-size: 14px; color: var(--t-lo); min-height: 18px; }
+.feedback.ok { color: var(--green); }
+.feedback.warn { color: var(--amber); }
+
+.panel-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.panel-hint { font-size: 13px; color: var(--t-lo); margin-left: auto; }
+
+/* Space stacked panels (Display · Streams · mpv Settings · Power). */
+.panel + .panel { margin-top: 16px; }
+
+/* ---- mpv settings panel ---- */
+
+/* The whole panel is a <fieldset>: disabling it (when the grid is down) disables every control inside,
+   so the JS just flips one `disabled` flag. Reset the browser's default fieldset chrome first. */
+.settings-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;   /* let the grid shrink inside the fieldset (fieldsets default to min-content) */
+}
+.settings-fields:disabled { opacity: 0.5; }
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px 20px;
+}
+.setting { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.setting > label {
+  font-size: 15px;
+  color: var(--t-md);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.setting .unit { font-size: 12px; color: var(--t-lo); letter-spacing: 0.5px; }
+
+/* Sub-section label inside the settings fieldset (e.g. "RTP / RTSP transport"). */
+.settings-sub {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--outline);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--t-lo);
+}
+.settings-sub + .settings-grid { margin-top: 12px; }
+
+input[type="number"],
+textarea,
+select {
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--t-hi);
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 6px 9px;
+  width: 100%;
+}
+input[type="number"]:focus,
+textarea:focus,
+select:focus { outline: none; border-color: var(--accent); }
+input[type="number"]:disabled,
+textarea:disabled,
+select:disabled { opacity: 0.5; }
+
+.settings-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+  margin-top: 18px;
+}
+
+.settings-args {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 18px;
+}
+.settings-args > label { font-size: 15px; color: var(--t-md); }
+textarea {
+  font-weight: 400;
+  font-size: 15px;
+  resize: vertical;
+  min-height: 44px;
+  line-height: 1.4;
+}
+
+/* ---- danger button (shutdown / exit) ---- */
+
+.btn-danger { color: var(--red); border-color: var(--red); background: transparent; }
+.btn-danger:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: #fff; }

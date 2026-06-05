@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>MpvGrid</AssemblyName>
+    <RootNamespace>MpvGrid</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <!-- Self-contained single FILE: managed/.NET assemblies + the .NET runtime bundle into the one exe,
+         and native libmpv-2.dll rides along as an EmbeddedResource (see the EmbeddedResource item below),
+         which the resolver self-extracts once to %TEMP% at first launch and loads from there
+         (mpv\MpvNative.cs → ExtractEmbeddedLibmpv). This makes `dotnet publish` emit a literal one-file exe.
+         Dev/`dotnet run` still get the loose libmpv\win-x64\libmpv-2.dll (the <None> copy item below), and
+         the resolver prefers that loose copy when present — so single-file is a publish-only concern. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Architecture-A sources kept on disk for reference only; never compiled. The tools\ tree holds
+       standalone helper projects (e.g. iconmaker) with their own AssemblyInfo — exclude them too, or the
+       implicit **\*.cs glob compiles their assembly attributes into MpvGrid (CS0579 duplicate attribute). -->
+  <ItemGroup>
+    <Compile Remove="reference\**\*.cs" />
+    <Compile Remove="tools\**\*.cs" />
+  </ItemGroup>
+
+  <!-- App icon embedded so the tray + windows can load it at runtime even under single-file publish
+       (where Icon.ExtractAssociatedIcon on a temp-extracted exe is unreliable). See AppIcon.cs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="app.ico" />
+  </ItemGroup>
+
+  <!-- Barlow Condensed (chartplotter display face) bundled + loaded via PrivateFontCollection at runtime
+       (see Theme.cs) so nothing needs installing and it survives single-file publish. -->
+  <ItemGroup>
+    <EmbeddedResource Include="fonts\*.ttf" />
+  </ItemGroup>
+
+  <!-- Browser control UI (HTML/CSS/JS) embedded so it ships inside the single exe and is served from
+       memory by HttpControlBridge (resolved by resource-name suffix; see ServeAsset). -->
+  <ItemGroup>
+    <EmbeddedResource Include="web\**\*" />
+  </ItemGroup>
+
+  <!-- Hand-rolled P/Invoke to libmpv (D1 — no managed wrapper package). The pinned official libmpv-2.dll is
+       checked in under libmpv\win-x64\. See libmpv\win-x64\README.md for the exact pinned build.
+
+       Two ways it reaches the resolver (mpv\MpvNative.cs):
+       (a) <None> copy item — puts it loose under the output tree for dev builds and `dotnet run`, where the
+           resolver loads it in place. CopyToPublishDirectory=Never keeps it OUT of the single-file publish
+           output so `publish` stays one file.
+       (b) <EmbeddedResource LogicalName="libmpv-2.dll"> — bundles it inside the assembly (and therefore the
+           single-file exe); the resolver self-extracts it to %TEMP% on first launch when no loose copy exists. -->
+  <ItemGroup>
+    <None Include="libmpv\win-x64\libmpv-2.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+      <Link>libmpv\win-x64\libmpv-2.dll</Link>
+    </None>
+    <EmbeddedResource Include="libmpv\win-x64\libmpv-2.dll">
+      <LogicalName>libmpv-2.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
