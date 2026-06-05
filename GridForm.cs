@@ -4,24 +4,24 @@ using System.Windows.Forms;
 namespace MpvGrid;
 
 /// <summary>
-/// The single borderless render window (spec §3, D6). Hosts 4 <see cref="MpvHost"/> controls
+/// The single borderless render window (spec §3, D6). Hosts N (1–16) <see cref="MpvHost"/> controls
 /// tiled edge-to-edge with zero gaps via <see cref="GridLayout"/>. Owns no playback state itself —
 /// the engine (step 4) embeds an mpv handle into each host's HWND and wires the hotkey callbacks below.
 /// </summary>
 internal sealed class GridForm : Form
 {
     private readonly Config _config;
-    private readonly MpvHost[] _views = new MpvHost[4];
+    private readonly MpvHost[] _views;
     private bool _viewsReady; // guards ApplyGrid() against resize events that fire mid-construction
 
-    /// <summary>The 4 video surfaces, TL, TR, BL, BR order. Engine embeds an mpv handle into each.</summary>
+    /// <summary>The video surfaces, row-major (TL→TR→…→BR); one per active stream (1–16). Engine embeds an mpv handle into each.</summary>
     public IReadOnlyList<MpvHost> Views => _views;
 
     // Wired by the engine/orchestrator in later steps; null-safe so step 3 runs standalone.
     // [DesignerSerializationVisibility.Hidden] keeps the WinForms analyzer (WFO1000) from trying
     // to code-serialize these delegate properties — this form is never opened in the designer.
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public Action<int>? ForceReconnect { get; set; }   // 1–4 keys -> reconnect that feed (0-based index)
+    public Action<int>? ForceReconnect { get; set; }   // D1–D9 keys -> reconnect that feed (0-based index); cells 10–16 via dashboard
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public Action? ToggleOverlay { get; set; }         // H key
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
@@ -42,7 +42,10 @@ internal sealed class GridForm : Form
 
         Bounds = TargetScreenBounds(_config.Monitor);
 
-        for (int i = 0; i < 4; i++)
+        // One host per active stream (clamped to [1,16]); the grid auto-tiles to this count.
+        int cells = Math.Clamp(_config.Streams.Count, 1, 16);
+        _views = new MpvHost[cells];
+        for (int i = 0; i < _views.Length; i++)
         {
             // MpvHost sets BackColor=Black + TabStop=false in its own ctor; its .Handle is the mpv embed target.
             var view = new MpvHost();
@@ -65,16 +68,16 @@ internal sealed class GridForm : Form
         return screens[monitorIndex].Bounds;
     }
 
-    /// <summary>Recompute the exact 2×2 tiling and place the 4 views. Idempotent.</summary>
+    /// <summary>Recompute the N-up tiling and place the views. Idempotent.</summary>
     private void ApplyGrid()
     {
         // OnResize can fire while the base Form ctor / Bounds assignment runs, before the views
-        // exist. Bail until the 4 MpvHosts are constructed (then the ctor calls us explicitly).
+        // exist. Bail until the MpvHosts are constructed (then the ctor calls us explicitly).
         if (!_viewsReady)
             return;
 
-        var rects = GridLayout.Quadrants(ClientSize.Width, ClientSize.Height);
-        for (int i = 0; i < 4; i++)
+        var rects = GridLayout.Tile(_views.Length, ClientSize.Width, ClientSize.Height);
+        for (int i = 0; i < _views.Length; i++)
         {
             _views[i].Bounds = rects[i];
         }
@@ -156,6 +159,11 @@ internal sealed class GridForm : Form
             case Keys.D2: case Keys.NumPad2: ForceReconnect?.Invoke(1); return true;
             case Keys.D3: case Keys.NumPad3: ForceReconnect?.Invoke(2); return true;
             case Keys.D4: case Keys.NumPad4: ForceReconnect?.Invoke(3); return true;
+            case Keys.D5: case Keys.NumPad5: ForceReconnect?.Invoke(4); return true;
+            case Keys.D6: case Keys.NumPad6: ForceReconnect?.Invoke(5); return true;
+            case Keys.D7: case Keys.NumPad7: ForceReconnect?.Invoke(6); return true;
+            case Keys.D8: case Keys.NumPad8: ForceReconnect?.Invoke(7); return true;
+            case Keys.D9: case Keys.NumPad9: ForceReconnect?.Invoke(8); return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }

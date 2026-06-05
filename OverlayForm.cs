@@ -58,7 +58,7 @@ internal sealed class OverlayForm : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Bounds = screenBounds;
-        _quadrants = GridLayout.Quadrants(screenBounds.Width, screenBounds.Height);
+        RebuildQuadrants();   // _feeds is empty here → 1 rect; SetFeeds/Reposition rebuild before anything paints
         TopMost = topMost;
         Enabled = false;                // never takes input
     }
@@ -91,17 +91,23 @@ internal sealed class OverlayForm : Form
         if (Visible) RenderNow();
     }
 
-    /// <summary>Position the overlay over the grid and recompute the quadrant rects.</summary>
+    /// <summary>Rebuild the badge rects to match the active feed count (1–16), tiled like the video grid.
+    /// Driven by <c>_feeds.Count</c> so badges always align with the cells <see cref="PaintOverlay"/> draws.</summary>
+    private void RebuildQuadrants() =>
+        _quadrants = GridLayout.Tile(Math.Clamp(_feeds.Count, 1, 16), Bounds.Width, Bounds.Height);
+
+    /// <summary>Position the overlay over the grid and recompute the badge rects.</summary>
     public void Reposition(Rectangle screenBounds)
     {
         Bounds = screenBounds;
-        _quadrants = GridLayout.Quadrants(screenBounds.Width, screenBounds.Height);
+        RebuildQuadrants();
         RenderNow();
     }
 
     public void SetFeeds(IReadOnlyList<FeedController> feeds)
     {
         _feeds = feeds;
+        RebuildQuadrants();
         RenderNow();
     }
 
