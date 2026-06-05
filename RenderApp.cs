@@ -167,6 +167,11 @@ internal sealed class RenderApp
             StallTimeoutMs = _config.StallTimeoutMs,
         };
 
+        // Copy (not alias) so telemetry never shares the live config's pool list.
+        snap.InactivePool = _config.InactivePool
+            .Select(p => new InactiveStream { Url = p.Url, Name = p.Name, NamesOnly = p.NamesOnly })
+            .ToList();
+
         return snap;
     }
 
@@ -256,6 +261,10 @@ internal sealed class RenderApp
                 if (cmd.Streams is not null) ApplyStreams(cmd.Streams);
                 if (cmd.Settings is not null) ApplySettings(cmd.Settings);
                 SaveConfig();
+                break;
+
+            case ControlCommands.ApplyRoster:
+                ApplyRoster(cmd);
                 break;
 
             default:
@@ -362,6 +371,47 @@ internal sealed class RenderApp
 
         if (changed > 0) Logger.Log($"Control: {changed} stream source(s) changed — reconnecting those feed(s).");
         _server?.PushNow();
+    }
+
+    /// <summary>Apply a full roster from the dashboard: overwrite Config wholesale (active arrays + pool),
+    /// persist, then restart the display so a fresh process re-reads streams.json (atomic at the process
+    /// boundary). Never a positional merge — see HANDOVER-dynamic-grid-tier1-execution.md §PRECEDENCE. UI thread.</summary>
+    private void ApplyRoster(ControlCommand cmd)
+    {
+        var streams   = cmd.Streams      ?? new List<string>();
+        var names     = cmd.Names        ?? new List<string>();
+        var namesOnly = cmd.NamesOnly    ?? new List<bool>();
+        var pool      = cmd.InactivePool ?? new List<InactiveStream>();
+
+        // Zip + drop any active entry with a blank URL, carrying its aligned name/namesOnly with it, so the
+        // three parallel lists stay index-aligned (Config.Normalize filters blank Streams but does NOT drop the
+        // aligned Names/OverlayNamesOnly — doing the filter here avoids that shift).
+        var act = new List<(string url, string name, bool no)>();
+        for (int i = 0; i < streams.Count; i++)
+        {
+            string url = (streams[i] ?? string.Empty).Trim();
+            if (url.Length == 0) continue;
+            string nm  = i < names.Count ? (names[i] ?? string.Empty).Trim() : string.Empty;
+            bool   no  = i < namesOnly.Count && namesOnly[i];
+            act.Add((url, nm, no));
+        }
+
+        _config.Streams          = act.Select(a => a.url).ToList();
+        _config.Names            = act.Select(a => a.name).ToList();
+        _config.OverlayNamesOnly = act.Select(a => a.no).ToList();
+        _config.InactivePool     = pool;          // Normalize() (inside Save) trims/filters/caps the pool
+        _config.Normalize();
+
+        try { _config.Save(); }
+        catch (Exception ex)
+        {
+            Logger.Log($"Control: applyRoster save FAILED, NOT restarting: {ex.Message}");
+            _server?.PushNow();
+            return;   // keep the live grid on the old roster
+        }
+
+        Logger.Log($"Control: roster applied ({_config.Streams.Count} active, {_config.InactivePool.Count} pooled) — restarting display.");
+        _form?.Close();   // exit 0 → supervisor relaunches → fresh Config.Load() reads the new roster
     }
 
     /// <summary>Persist the current live config to streams.json (D-DASH-3 Save). UI thread.</summary>

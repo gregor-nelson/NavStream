@@ -74,6 +74,7 @@ internal sealed class ControlSnapshot
     public SettingsSnapshot Settings { get; set; } = new();
     public string ConfigPath { get; set; } = "";
     public int RenderPid { get; set; }
+    public List<InactiveStream> InactivePool { get; set; } = new(); // parked pool, for the dashboard roster editor
 }
 
 /// <summary>Command names (dashboard → render). Kept as constants so both ends agree.</summary>
@@ -90,6 +91,7 @@ internal static class ControlCommands
     public const string ApplySettings = "applySettings";    // Settings  (Phase C, session-only)
     public const string SetStreams = "setStreams";          // Streams (per-cell source URLs, live swap)
     public const string Save = "save";                      // persist current Config to streams.json (Phase C)
+    public const string ApplyRoster = "applyRoster";        // wholesale roster overwrite + Save + restart (dynamic-grid Tier 1)
     public const string FullStop = "fullStop";              // tear the whole app down
 }
 
@@ -102,6 +104,9 @@ internal sealed class ControlCommand
     public int IntValue { get; set; }
     public string? StringValue { get; set; }   // free-text payload (e.g. a vessel name for SetName)
     public List<string>? Streams { get; set; } // per-cell source URLs (SetStreams / Save), positional
+    public List<string>? Names { get; set; }                 // active vessel names, aligned with Streams (applyRoster)
+    public List<bool>? NamesOnly { get; set; }               // active "name only" flags, aligned with Streams (applyRoster)
+    public List<InactiveStream>? InactivePool { get; set; }  // the parked pool, wholesale (applyRoster)
     public SettingsSnapshot? Settings { get; set; }
     public VisualSnapshot? Visual { get; set; }
 }
