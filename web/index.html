@@ -107,6 +107,11 @@
           <span class="switch-label">Overlay badges <kbd>H</kbd></span>
         </label>
         <label class="switch">
+          <input type="checkbox" id="logo" />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-label">Brand logo</span>
+        </label>
+        <label class="switch">
           <input type="checkbox" id="borderless" />
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span class="switch-label">Borderless</span>
@@ -119,6 +124,63 @@
         <div class="control-field">
           <label for="monitor">Monitor</label>
           <select id="monitor"></select>
+        </div>
+      </div>
+
+      <div class="logo-advanced" id="logo-advanced">
+        <div class="settings-sub">Logo settings</div>
+        <div class="logo-controls">
+          <div class="logo-field">
+            <label for="logo-opacity">Opacity <span class="logo-val" id="logo-opacity-val">40%</span></label>
+            <input type="range" id="logo-opacity" min="0" max="80" step="1"
+                   title="How see-through the brand watermark is over the video. Higher = more solid. Range 0–80%." />
+          </div>
+          <div class="logo-field">
+            <label for="logo-brightness">Brightness <span class="logo-val" id="logo-brightness-val">50%</span></label>
+            <input type="range" id="logo-brightness" min="0" max="100" step="1"
+                   title="Lifts the logo's colours toward white so the dark-blue mark reads over bright video. Higher = brighter. Range 0–100%." />
+          </div>
+          <div class="logo-field">
+            <label for="logo-size">Size <span class="logo-val" id="logo-size-val">15%</span></label>
+            <input type="range" id="logo-size" min="5" max="30" step="1"
+                   title="Logo width as a fraction of each cell (it scales with the tiling). Range 5–30%." />
+          </div>
+          <div class="logo-field">
+            <label for="logo-position">Position</label>
+            <select id="logo-position"
+                    title="Which corner of each cell the logo sits in. Top-left overlaps the health badge.">
+              <option value="0">Bottom-left</option>
+              <option value="1">Bottom-right</option>
+              <option value="2">Top-right</option>
+              <option value="3">Top-left (over badge)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay-advanced" id="overlay-advanced">
+        <div class="settings-sub">Overlay settings</div>
+        <div class="logo-controls">
+          <div class="logo-field">
+            <label for="badge-opacity">Opacity <span class="logo-val" id="badge-opacity-val">77%</span></label>
+            <input type="range" id="badge-opacity" min="30" max="100" step="1"
+                   title="How solid the health badge panels are over the video. Higher = more solid. Text, LEDs and the cell-number badge always stay full-strength. Range 30–100%." />
+          </div>
+          <div class="logo-field">
+            <label for="badge-size">Size <span class="logo-val" id="badge-size-val">100%</span></label>
+            <input type="range" id="badge-size" min="60" max="160" step="1"
+                   title="Badge size relative to the auto-scaled default (it still scales with the tiling). A large size in a small cell can overflow the cell. Range 60–160%." />
+          </div>
+          <div class="logo-field">
+            <label for="badge-position">Position</label>
+            <select id="badge-position"
+                    title="Which corner of each cell the health badge sits in.">
+              <option value="0">Top-left</option>
+              <option value="1">Top-right</option>
+              <option value="2">Bottom-right</option>
+              <option value="3">Bottom-left</option>
+            </select>
+          </div>
         </div>
       </div>
     </section>

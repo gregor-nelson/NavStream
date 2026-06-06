@@ -40,9 +40,26 @@
     dropsVal: document.getElementById('drops-val'),
     // display panel
     overlay: document.getElementById('overlay'),
+    logo: document.getElementById('logo'),
     borderless: document.getElementById('borderless'),
     alwaysOnTop: document.getElementById('always-on-top'),
     monitor: document.getElementById('monitor'),
+    // logo settings popdown (range sliders + corner select)
+    logoAdvanced: document.getElementById('logo-advanced'),
+    logoOpacity: document.getElementById('logo-opacity'),
+    logoOpacityVal: document.getElementById('logo-opacity-val'),
+    logoBrightness: document.getElementById('logo-brightness'),
+    logoBrightnessVal: document.getElementById('logo-brightness-val'),
+    logoSize: document.getElementById('logo-size'),
+    logoSizeVal: document.getElementById('logo-size-val'),
+    logoPosition: document.getElementById('logo-position'),
+    // overlay (health badge) settings popdown (range sliders + corner select)
+    overlayAdvanced: document.getElementById('overlay-advanced'),
+    badgeOpacity: document.getElementById('badge-opacity'),
+    badgeOpacityVal: document.getElementById('badge-opacity-val'),
+    badgeSize: document.getElementById('badge-size'),
+    badgeSizeVal: document.getElementById('badge-size-val'),
+    badgePosition: document.getElementById('badge-position'),
     // streams panel
     save: document.getElementById('save'),
     streamsFeedback: document.getElementById('streams-feedback'),
@@ -135,8 +152,40 @@
     // Setting an input's .checked/.value programmatically does NOT fire 'change' in the DOM, so mirroring
     // a frame into these controls never echoes a command back — no suppression flag needed (unlike WinForms).
     els.overlay.addEventListener('change', () => send({ name: 'setOverlay', boolValue: els.overlay.checked }));
+    els.logo.addEventListener('change', () => send({ name: 'setLogo', boolValue: els.logo.checked }));
     els.borderless.addEventListener('change', () => send({ name: 'setBorderless', boolValue: els.borderless.checked }));
     els.alwaysOnTop.addEventListener('change', () => send({ name: 'setAlwaysOnTop', boolValue: els.alwaysOnTop.checked }));
+
+    // Logo settings: each slider repaints the overlay live. Update the % readout instantly, but throttle the
+    // command (leading + trailing) so a fast drag doesn't flood the pipe — the trailing call sends the final
+    // value. Position fires on 'change' (one value per pick). Values persist only on Save (with the streams).
+    const sendOpacity = throttle((v) => send({ name: 'setLogoOpacity', intValue: v }), 60);
+    const sendBrightness = throttle((v) => send({ name: 'setLogoBrightness', intValue: v }), 60);
+    const sendSize = throttle((v) => send({ name: 'setLogoSize', intValue: v }), 60);
+    els.logoOpacity.addEventListener('input', () => {
+      const v = intVal(els.logoOpacity); els.logoOpacityVal.textContent = v + '%'; sendOpacity(v);
+    });
+    els.logoBrightness.addEventListener('input', () => {
+      const v = intVal(els.logoBrightness); els.logoBrightnessVal.textContent = v + '%'; sendBrightness(v);
+    });
+    els.logoSize.addEventListener('input', () => {
+      const v = intVal(els.logoSize); els.logoSizeVal.textContent = v + '%'; sendSize(v);
+    });
+    els.logoPosition.addEventListener('change', () =>
+      send({ name: 'setLogoPosition', intValue: Number(els.logoPosition.value) || 0 }));
+
+    // Overlay (health badge) settings: same live + throttled pattern as the logo sliders. Opacity/Size repaint
+    // the badges live; Position fires on 'change'. Values persist only on Save (with the streams).
+    const sendBadgeOpacity = throttle((v) => send({ name: 'setBadgeOpacity', intValue: v }), 60);
+    const sendBadgeSize = throttle((v) => send({ name: 'setBadgeSize', intValue: v }), 60);
+    els.badgeOpacity.addEventListener('input', () => {
+      const v = intVal(els.badgeOpacity); els.badgeOpacityVal.textContent = v + '%'; sendBadgeOpacity(v);
+    });
+    els.badgeSize.addEventListener('input', () => {
+      const v = intVal(els.badgeSize); els.badgeSizeVal.textContent = v + '%'; sendBadgeSize(v);
+    });
+    els.badgePosition.addEventListener('change', () =>
+      send({ name: 'setBadgePosition', intValue: Number(els.badgePosition.value) || 0 }));
 
     els.monitor.addEventListener('change', () => {
       const i = els.monitor.selectedIndex;
@@ -249,6 +298,28 @@
 
   function intVal(el) { const n = Math.round(Number(el.value)); return Number.isFinite(n) ? n : 0; }
   function floatVal(el) { const n = Number(el.value); return Number.isFinite(n) ? n : 0; }
+
+  // Leading + trailing throttle: fires immediately, then at most once per `ms`, always delivering the final
+  // call's args. Used so a slider drag repaints live without flooding the command pipe.
+  function throttle(fn, ms) {
+    let last = -Infinity, timer = 0, saved = null;
+    const run = (args) => { last = Date.now(); fn.apply(null, args); };
+    return function () {
+      saved = arguments;
+      const wait = ms - (Date.now() - last);
+      if (wait <= 0) { if (timer) { clearTimeout(timer); timer = 0; } run(saved); }
+      else if (!timer) { timer = setTimeout(() => { timer = 0; run(saved); }, wait); }
+    };
+  }
+
+  // Mirror a snapshot value into a range slider + its % readout, never while the operator is dragging it
+  // (activeElement guard). Programmatic .value never fires 'input', so this can't echo a command back.
+  function setRange(el, valEl, v, suffix) {
+    if (el !== document.activeElement && v != null) {
+      el.value = String(v);
+      valEl.textContent = v + (suffix || '');
+    }
+  }
 
   // ---- SSE connection to the dashboard process ----
 
@@ -437,8 +508,22 @@
     // Mirror the grid-owned toggles every frame (the H hotkey can flip overlay grid-side). Programmatic
     // .checked never fires 'change', so this can't loop back into a command.
     els.overlay.checked = !!v.overlayEnabled;
+    els.logo.checked = !!v.logoEnabled;
     els.borderless.checked = !!v.borderless;
     els.alwaysOnTop.checked = !!v.alwaysOnTop;
+
+    // Logo settings: mirror the live appearance knobs (guarded against clobbering an in-progress drag/pick).
+    setRange(els.logoOpacity, els.logoOpacityVal, v.logoOpacityPct, '%');
+    setRange(els.logoBrightness, els.logoBrightnessVal, v.logoBrightnessPct, '%');
+    setRange(els.logoSize, els.logoSizeVal, v.logoSizePct, '%');
+    if (document.activeElement !== els.logoPosition && v.logoPosition != null)
+      els.logoPosition.value = String(v.logoPosition);
+
+    // Overlay settings: mirror the live badge appearance knobs (guarded against clobbering an in-progress drag/pick).
+    setRange(els.badgeOpacity, els.badgeOpacityVal, v.badgeOpacityPct, '%');
+    setRange(els.badgeSize, els.badgeSizeVal, v.badgeSizePct, '%');
+    if (document.activeElement !== els.badgePosition && v.badgePosition != null)
+      els.badgePosition.value = String(v.badgePosition);
 
     // Monitor selector: rebuild the option list only when the count changes, then reflect the active one
     // (but never while the operator has the dropdown open).
@@ -463,6 +548,17 @@
     const on = !!f.connected;
     els.overlay.disabled = els.borderless.disabled = els.alwaysOnTop.disabled =
       els.monitor.disabled = els.save.disabled = !on;
+
+    // Logo sliders only make sense when the grid is up AND the watermark is on — disable + grey otherwise.
+    const logoOn = on && !!v.logoEnabled;
+    els.logoOpacity.disabled = els.logoBrightness.disabled =
+      els.logoSize.disabled = els.logoPosition.disabled = !logoOn;
+    els.logoAdvanced.classList.toggle('is-disabled', !logoOn);
+
+    // Badge controls only make sense when the grid is up AND the overlay badges are on — disable + grey otherwise.
+    const badgeOn = on && !!v.overlayEnabled;
+    els.badgeOpacity.disabled = els.badgeSize.disabled = els.badgePosition.disabled = !badgeOn;
+    els.overlayAdvanced.classList.toggle('is-disabled', !badgeOn);
   }
 
   function renderFeeds(feeds, isConn) {
@@ -500,7 +596,10 @@
     reconnect.textContent = 'Reconnect';
     titleRow.append(dot, title, reconnect);
 
-    // Name row: editable vessel name (overlay label) + a "name only" switch.
+    // Name row: editable vessel name (overlay label) + two compact labeled per-stream overlay toggles.
+    // "Name" = name-only badge mode; "Logo" = brand watermark on this cell. Helper builds identical switches
+    // (label + visually-hidden checkbox + track) — the checkbox must stay immediately before the track for the
+    // `input:checked + .switch-track` CSS to flip it.
     const nameRow = document.createElement('div');
     nameRow.className = 'feed-name-row';
     const name = document.createElement('input');
@@ -508,16 +607,31 @@
     name.className = 'feed-name-input';
     name.placeholder = 'Vessel name';
     name.maxLength = 64;
-    const namesOnlyWrap = document.createElement('label');
-    namesOnlyWrap.className = 'switch switch-sm';
-    namesOnlyWrap.title = 'Name only: show just the vessel name + a health dot — hides stream #, IP & status.';
-    const namesOnly = document.createElement('input');
-    namesOnly.type = 'checkbox';
-    const track = document.createElement('span'); track.className = 'switch-track';
-    const thumb = document.createElement('span'); thumb.className = 'switch-thumb';
-    track.append(thumb);
-    namesOnlyWrap.append(namesOnly, track);
-    nameRow.append(name, namesOnlyWrap);
+
+    function makeToggle(labelText, titleText, on) {
+      const wrap = document.createElement('label');
+      wrap.className = 'switch switch-sm feed-toggle';
+      wrap.title = titleText;
+      const lbl = document.createElement('span');
+      lbl.className = 'switch-label feed-toggle-label';
+      lbl.textContent = labelText;
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!on;
+      const track = document.createElement('span'); track.className = 'switch-track';
+      const thumb = document.createElement('span'); thumb.className = 'switch-thumb';
+      track.append(thumb);
+      wrap.append(lbl, input, track);
+      return { wrap, input };
+    }
+
+    const nameOnlyToggle = makeToggle('Name',
+      'Name only: show just the vessel name + a health dot — hides stream #, IP & status.', false);
+    const namesOnly = nameOnlyToggle.input;
+    const logoToggle = makeToggle('Logo',
+      'Logo: show the brand watermark on this stream’s cell. The global Brand logo switch must also be on.', true);
+    const logo = logoToggle.input;
+    nameRow.append(name, nameOnlyToggle.wrap, logoToggle.wrap);
 
     // Source row: editable full source URL (live per-cell swap via setStreams). Replaces the old read-only
     // protocol + IP display — the whole URL (scheme, host/IP, port, path) now lives in this one box.
@@ -542,7 +656,7 @@
     root.append(swatch, body);
     els.feeds.appendChild(root);
 
-    const r = { root, title, name, namesOnly, reconnect, url, stats, feedIndex: 0 };
+    const r = { root, title, name, namesOnly, logo, reconnect, url, stats, feedIndex: 0 };
 
     // ---- per-feed command wiring (reads r.feedIndex, refreshed each frame) ----
     reconnect.addEventListener('click', () => send({ name: 'reconnect', index: r.feedIndex }));
@@ -551,6 +665,10 @@
     name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); r.name.blur(); } });
     namesOnly.addEventListener('change', () =>
       send({ name: 'setOverlayNamesOnly', index: r.feedIndex, boolValue: r.namesOnly.checked }));
+    // Per-stream brand watermark. The backend command (setOverlayLogo) lands with the per-stream-logo
+    // feature; until then the render process logs it as unknown and ignores it (harmless, toggle is visual).
+    logo.addEventListener('change', () =>
+      send({ name: 'setOverlayLogo', index: r.feedIndex, boolValue: r.logo.checked }));
     // Source URL: commit on blur-after-edit ('change') and on Enter. Live-swaps just this cell.
     url.addEventListener('change', () => commitUrl(r));
     url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); r.url.blur(); } });
@@ -596,6 +714,7 @@
     const editable = isConn && !offline && !roster.dirty;
     r.name.disabled = !editable;
     r.namesOnly.disabled = !editable;
+    r.logo.disabled = !editable;
     r.reconnect.disabled = !editable;
     r.url.disabled = !isConn || roster.dirty;
   }
@@ -778,6 +897,7 @@
       const editable = r.isConn && !r.offline && !roster.dirty;
       r.name.disabled = !editable;
       r.namesOnly.disabled = !editable;
+      r.logo.disabled = !editable;
       r.reconnect.disabled = !editable;
       r.url.disabled = !r.isConn || roster.dirty;
     }

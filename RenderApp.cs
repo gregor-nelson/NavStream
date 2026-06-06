@@ -64,6 +64,9 @@ internal sealed class RenderApp
             foreach (var feed in _engine.Feeds)
                 feed.Changed += OnFeedChanged;
 
+            _overlay.SetLogoVisible(_config.LogoEnabled);
+            ApplyLogoParams();   // push persisted opacity/brightness/size/position into the overlay
+            ApplyBadgeParams();  // push persisted badge opacity/size/position into the overlay
             _overlay.Visible = _config.OverlayEnabled;
             _overlay.Show();
 
@@ -141,6 +144,14 @@ internal sealed class RenderApp
         snap.Visual = new VisualSnapshot
         {
             OverlayEnabled = _config.OverlayEnabled,   // kept in sync on every toggle (avoids cross-thread control reads)
+            LogoEnabled = _config.LogoEnabled,
+            LogoOpacityPct = _config.LogoOpacityPct,
+            LogoBrightnessPct = _config.LogoBrightnessPct,
+            LogoSizePct = _config.LogoSizePct,
+            LogoPosition = _config.LogoPosition,
+            BadgeOpacityPct = _config.BadgeOpacityPct,
+            BadgeSizePct = _config.BadgeSizePct,
+            BadgePosition = _config.BadgePosition,
             Monitor = _config.Monitor,
             MonitorCount = Screen.AllScreens.Length,
             Borderless = _config.Borderless,
@@ -201,6 +212,54 @@ internal sealed class RenderApp
 
             case ControlCommands.SetOverlay:
                 SetOverlay(cmd.BoolValue);
+                break;
+
+            case ControlCommands.SetLogo:
+                SetLogo(cmd.BoolValue);
+                break;
+
+            // ---- Brand-watermark appearance (live; persisted on Save) ----
+            case ControlCommands.SetLogoOpacity:
+                _config.LogoOpacityPct = Math.Clamp(cmd.IntValue, 0, 80);
+                ApplyLogoParams();
+                _server?.PushNow();
+                break;
+
+            case ControlCommands.SetLogoBrightness:
+                _config.LogoBrightnessPct = Math.Clamp(cmd.IntValue, 0, 100);
+                ApplyLogoParams();
+                _server?.PushNow();
+                break;
+
+            case ControlCommands.SetLogoSize:
+                _config.LogoSizePct = Math.Clamp(cmd.IntValue, 5, 30);
+                ApplyLogoParams();
+                _server?.PushNow();
+                break;
+
+            case ControlCommands.SetLogoPosition:
+                _config.LogoPosition = Math.Clamp(cmd.IntValue, 0, 3);
+                ApplyLogoParams();
+                _server?.PushNow();
+                break;
+
+            // ---- Health-overlay badge appearance (live; persisted on Save) ----
+            case ControlCommands.SetBadgeOpacity:
+                _config.BadgeOpacityPct = Math.Clamp(cmd.IntValue, 30, 100);
+                ApplyBadgeParams();
+                _server?.PushNow();
+                break;
+
+            case ControlCommands.SetBadgeSize:
+                _config.BadgeSizePct = Math.Clamp(cmd.IntValue, 60, 160);
+                ApplyBadgeParams();
+                _server?.PushNow();
+                break;
+
+            case ControlCommands.SetBadgePosition:
+                _config.BadgePosition = Math.Clamp(cmd.IntValue, 0, 3);
+                ApplyBadgeParams();
+                _server?.PushNow();
                 break;
 
             case ControlCommands.FullStop:
@@ -279,6 +338,39 @@ internal sealed class RenderApp
         _config.OverlayEnabled = on;
         if (_overlay is not null) _overlay.Visible = on;
         _server?.PushNow();
+    }
+
+    /// <summary>Apply brand-watermark visibility live, keep Config in sync, and refresh the dashboard. UI thread.</summary>
+    private void SetLogo(bool on)
+    {
+        _config.LogoEnabled = on;
+        if (_overlay is not null) _overlay.SetLogoVisible(on);
+        _server?.PushNow();
+    }
+
+    /// <summary>Push the four persisted watermark-appearance knobs from <see cref="Config"/> into the overlay,
+    /// mapping each dashboard percent/enum to the overlay's render units (alpha &amp; width 0..1, brightness a
+    /// 0..0.5 RGB lift, corner 0..3). Each overlay setter no-ops if its value is unchanged, so calling this
+    /// after a single-knob command only repaints once. UI thread.</summary>
+    private void ApplyLogoParams()
+    {
+        if (_overlay is null) return;
+        _overlay.SetLogoOpacity(_config.LogoOpacityPct / 100f);
+        _overlay.SetLogoBrightness(_config.LogoBrightnessPct / 100f * 0.5f);
+        _overlay.SetLogoSize(_config.LogoSizePct / 100f);
+        _overlay.SetLogoPosition(_config.LogoPosition);
+    }
+
+    /// <summary>Push the three persisted health-overlay badge knobs from <see cref="Config"/> into the overlay,
+    /// mapping each dashboard percent/enum to the overlay's render units (opacity &amp; size are /100 fractions,
+    /// corner 0..3). Each overlay setter no-ops if unchanged, so calling this after a single-knob command only
+    /// repaints once. UI thread.</summary>
+    private void ApplyBadgeParams()
+    {
+        if (_overlay is null) return;
+        _overlay.SetBadgeOpacity(_config.BadgeOpacityPct / 100f);
+        _overlay.SetBadgeSize(_config.BadgeSizePct / 100f);
+        _overlay.SetBadgePosition(_config.BadgePosition);
     }
 
     /// <summary>Set a position-aligned config list element by index, padding the list with defaults up to

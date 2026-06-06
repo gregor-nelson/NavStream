@@ -319,6 +319,12 @@ main {
 .feed-name-input:focus { outline: none; border-color: var(--accent); }
 .feed-name-input:disabled { opacity: 0.5; }
 
+/* Two compact labeled overlay toggles share the name row (Name-only + Logo). They never shrink; the name
+   input flexes to take the remaining width. */
+.feed-toggle { flex: 0 0 auto; gap: 6px; }
+.feed-toggle-label { font-size: 13px; font-weight: 500; color: var(--t-md); }
+.feed-toggle:has(input:disabled) .feed-toggle-label { opacity: 0.4; }
+
 .feed-source-row {
   display: flex;
   align-items: center;
@@ -716,6 +722,60 @@ textarea {
 .settings-advanced[open] > summary::before { transform: rotate(90deg); }
 .settings-advanced > summary:hover { color: var(--t-md); }
 .settings-advanced > .settings-grid { margin-top: 12px; }
+
+/* ---- logo / overlay settings (Display panel) ---- */
+/* Inline blocks under a .settings-sub heading (matching the mpv Settings panel); this adds the slider grid inside. */
+.logo-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px 20px;
+  margin-top: 12px;
+}
+.logo-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.logo-field > label {
+  font-size: 15px;
+  color: var(--t-md);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.logo-val { font-size: 13px; color: var(--t-lo); font-variant-numeric: tabular-nums; }
+/* Grey the whole block when the Brand-logo switch is off (controls are also disabled in app.js). */
+.logo-advanced.is-disabled .logo-controls { opacity: 0.5; }
+/* Same, for the Overlay-settings popdown when the Overlay-badges switch (or grid) is off. */
+.overlay-advanced.is-disabled .logo-controls { opacity: 0.5; }
+
+/* Range slider, themed to match the control-room surfaces (number/select inputs above). */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  margin: 6px 0;
+  border-radius: 999px;
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  cursor: pointer;
+}
+input[type="range"]:focus { outline: none; }
+input[type="range"]:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px; height: 16px;
+  margin-top: -6px;                 /* centre the thumb on the 6px track */
+  border-radius: 50%;
+  background: var(--accent-hi);
+  border: 1px solid var(--accent);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--accent-hi);
+  border: 1px solid var(--accent);
+}
+input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 
 /* ---- danger button (shutdown / exit) ---- */
 

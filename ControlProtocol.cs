@@ -38,6 +38,16 @@ internal sealed class FeedSnapshot
 internal sealed class VisualSnapshot
 {
     public bool OverlayEnabled { get; set; }
+    public bool LogoEnabled { get; set; }
+    // Brand-watermark appearance, mirrored back so the dashboard "Logo settings" controls self-populate.
+    public int LogoOpacityPct { get; set; }
+    public int LogoBrightnessPct { get; set; }
+    public int LogoSizePct { get; set; }
+    public int LogoPosition { get; set; }
+    // Health-overlay badge appearance, mirrored back so the dashboard "Overlay settings" controls self-populate.
+    public int BadgeOpacityPct { get; set; }
+    public int BadgeSizePct { get; set; }
+    public int BadgePosition { get; set; }
     public int Monitor { get; set; }
     public int MonitorCount { get; set; }
     public bool Borderless { get; set; }
@@ -83,6 +93,14 @@ internal static class ControlCommands
     public const string Reconnect = "reconnect";            // Index = feed (0-based)
     public const string RestartDisplay = "restartDisplay";  // render exits 0 → supervisor relaunches
     public const string SetOverlay = "setOverlay";          // BoolValue
+    public const string SetLogo = "setLogo";                // BoolValue (brand watermark, live)
+    public const string SetLogoOpacity = "setLogoOpacity";       // IntValue 0..80   (watermark alpha %, live)
+    public const string SetLogoBrightness = "setLogoBrightness"; // IntValue 0..100  (watermark RGB lift %, live)
+    public const string SetLogoSize = "setLogoSize";             // IntValue 5..30   (watermark width % of cell, live)
+    public const string SetLogoPosition = "setLogoPosition";     // IntValue 0..3    (watermark corner, live)
+    public const string SetBadgeOpacity = "setBadgeOpacity";     // IntValue 30..100 (badge surface opacity %, live)
+    public const string SetBadgeSize = "setBadgeSize";           // IntValue 60..160 (badge size % of base scale, live)
+    public const string SetBadgePosition = "setBadgePosition";   // IntValue 0..3    (badge corner, live)
     public const string SetMonitor = "setMonitor";          // IntValue  (Phase B)
     public const string SetBorderless = "setBorderless";    // BoolValue (Phase B)
     public const string SetAlwaysOnTop = "setAlwaysOnTop";  // BoolValue (Phase B)

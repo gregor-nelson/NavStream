@@ -95,6 +95,18 @@ internal sealed class Config
 
     // ---- monitoring (D8, §6) ----
     public bool OverlayEnabled { get; set; } = true;
+    public bool LogoEnabled { get; set; } = true;   // InterMoor brand watermark; dashboard-toggleable
+    // Brand-watermark appearance (dashboard "Logo settings"; live + persisted). Defaults reproduce the prior
+    // hardcoded look: 40% alpha, brightness 50% (→ 0.25 RGB lift), 15% of cell width, bottom-left corner.
+    public int LogoOpacityPct { get; set; } = 40;     // 0..80  → alpha = pct/100
+    public int LogoBrightnessPct { get; set; } = 50;  // 0..100 → RGB lift = pct/100 * 0.5
+    public int LogoSizePct { get; set; } = 15;        // 5..30  → width fraction = pct/100
+    public int LogoPosition { get; set; } = 0;        // 0=bottom-left, 1=bottom-right, 2=top-right, 3=top-left
+    // Health-overlay badge appearance (dashboard "Overlay settings"; live + persisted). Defaults reproduce the
+    // prior hardcoded look: pill fill α196 (= 77% opacity), 100% size, top-left corner.
+    public int BadgeOpacityPct { get; set; } = 77;    // 30..100 → surface alpha = (pct/100) scales PillFill α196 in proportion
+    public int BadgeSizePct { get; set; } = 100;      // 60..160 → master scale ×= pct/100
+    public int BadgePosition { get; set; } = 0;       // 0=top-left, 1=top-right, 2=bottom-right, 3=bottom-left
     public int RefreshSeconds { get; set; } = 2;
     public string LogPath { get; set; } = "navstream.log";
 
@@ -223,6 +235,17 @@ internal sealed class Config
         if (BackoffFactor < 1.0) BackoffFactor = 1.0;
         if (BackoffResetMs < 1000) BackoffResetMs = 1000;
         if (StallTimeoutMs < 1000) StallTimeoutMs = 1000;
+
+        // Brand-watermark appearance — keep dashboard/hand-edits in the ranges the render + sliders expect.
+        LogoOpacityPct = Math.Clamp(LogoOpacityPct, 0, 80);
+        LogoBrightnessPct = Math.Clamp(LogoBrightnessPct, 0, 100);
+        LogoSizePct = Math.Clamp(LogoSizePct, 5, 30);
+        if (LogoPosition < 0 || LogoPosition > 3) LogoPosition = 0;
+
+        // Health-overlay badge appearance — keep dashboard/hand-edits in the ranges the render + sliders expect.
+        BadgeOpacityPct = Math.Clamp(BadgeOpacityPct, 30, 100);
+        BadgeSizePct = Math.Clamp(BadgeSizePct, 60, 160);
+        if (BadgePosition < 0 || BadgePosition > 3) BadgePosition = 0;
 
         if (RefreshSeconds < 1) RefreshSeconds = 1;
         if (string.IsNullOrWhiteSpace(LogPath)) LogPath = "navstream.log";

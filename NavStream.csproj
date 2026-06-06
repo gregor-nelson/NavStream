@@ -40,6 +40,14 @@
     <EmbeddedResource Include="app.ico" />
   </ItemGroup>
 
+  <!-- InterMoor corporate logo (white background pre-stripped to transparency) embedded so the overlay
+       can paint it as a subtle watermark from memory, surviving single-file publish. See LogoImage.cs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="assets\logo.png">
+      <LogicalName>NavStream.logo.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <!-- Barlow Condensed (chartplotter display face) bundled + loaded via PrivateFontCollection at runtime
        (see Theme.cs) so nothing needs installing and it survives single-file publish. -->
   <ItemGroup>

@@ -48,6 +48,16 @@ internal sealed class OverlayForm : Form
     private static readonly Color TextPrimary = Color.FromArgb(245, 245, 248);
     private static readonly Color TextMuted = Color.FromArgb(165, 176, 192);
 
+    // ---- Badge appearance (dashboard "Overlay settings"; live + persisted) ----
+    // Live knobs the dashboard tunes via the SetBadge* setters (see RenderApp); defaults reproduce the prior
+    // hardcoded look: pill fill α196 (= 77% opacity), 1.0× size, top-left corner. Opacity scales only the
+    // frosted-glass *surface* (fill/shadow/sheen/border) in proportion — text, LEDs and the number badge stay
+    // full strength. Size multiplies the master geometry scale; Position picks the anchor corner.
+    private const float DefaultBadgeOpacity = 0.77f;  // 196/255 — the prior PillFill alpha
+    private float _badgeOpacity = DefaultBadgeOpacity; // 0.30..1.0 (dashboard 30–100%)
+    private float _badgeScale = 1f;                    // 0.60..1.60 (dashboard 60–160%)
+    private int _badgeCorner;                          // 0=top-left (default), 1=top-right, 2=bottom-right, 3=bottom-left
+
     private IReadOnlyList<FeedController> _feeds = Array.Empty<FeedController>();
     private Rectangle[] _quadrants = Array.Empty<Rectangle>();
 
@@ -113,6 +123,73 @@ internal sealed class OverlayForm : Form
 
     public void Toggle() => Visible = !Visible;
 
+    /// <summary>Show/hide the brand watermark independently of the badges (dashboard "Brand logo" switch).
+    /// Repaints on change. The watermark still shares the overlay's own visibility (the H toggle).</summary>
+    public void SetLogoVisible(bool show)
+    {
+        if (_showLogo == show) return;
+        _showLogo = show;
+        RenderNow();
+    }
+    private bool _showLogo = true;
+
+    /// <summary>Live-tune the brand watermark from the dashboard "Logo settings" controls. Each guards on an
+    /// unchanged value then repaints, mirroring <see cref="SetLogoVisible"/>. Values arrive pre-mapped to
+    /// render units (RenderApp maps the dashboard percent/enum): opacity and size are 0..1 fractions,
+    /// brightness a 0..0.5 RGB lift, corner 0..3 (0=BL, 1=BR, 2=TR, 3=TL).</summary>
+    public void SetLogoOpacity(float opacity)
+    {
+        if (_opacity == opacity) return;
+        _opacity = opacity;
+        RenderNow();
+    }
+
+    public void SetLogoBrightness(float brightness)
+    {
+        if (_brightness == brightness) return;
+        _brightness = brightness;
+        RenderNow();
+    }
+
+    public void SetLogoSize(float widthFrac)
+    {
+        if (_widthFrac == widthFrac) return;
+        _widthFrac = widthFrac;
+        RenderNow();
+    }
+
+    public void SetLogoPosition(int corner)
+    {
+        if (_logoCorner == corner) return;
+        _logoCorner = corner;
+        RenderNow();
+    }
+
+    /// <summary>Live-tune the health overlay badges from the dashboard "Overlay settings" controls. Each guards
+    /// on an unchanged value then repaints, mirroring <see cref="SetLogoOpacity"/>. Values arrive pre-mapped to
+    /// render units (RenderApp maps the dashboard percent/enum): opacity &amp; size are fractions, corner 0..3
+    /// (0=TL, 1=TR, 2=BR, 3=BL).</summary>
+    public void SetBadgeOpacity(float opacity)
+    {
+        if (_badgeOpacity == opacity) return;
+        _badgeOpacity = opacity;
+        RenderNow();
+    }
+
+    public void SetBadgeSize(float scale)
+    {
+        if (_badgeScale == scale) return;
+        _badgeScale = scale;
+        RenderNow();
+    }
+
+    public void SetBadgePosition(int corner)
+    {
+        if (_badgeCorner == corner) return;
+        _badgeCorner = corner;
+        RenderNow();
+    }
+
     // ---------------------------------------------------------------- render pipeline
 
     /// <summary>Rebuild the overlay bitmap and push it to the compositor. Must run on the UI thread.</summary>
@@ -138,19 +215,83 @@ internal sealed class OverlayForm : Form
 
     private void PaintOverlay(Graphics g)
     {
+        DrawWatermark(g);   // station brand, behind the per-feed badges
         for (int i = 0; i < _feeds.Count && i < _quadrants.Length; i++)
             DrawBadge(g, _quadrants[i], _feeds[i]);
+    }
+
+    // ---------------------------------------------------------------- brand watermark
+
+    // Per-cell watermark tuning. Width-fraction, opacity, brightness and corner are live fields the dashboard
+    // tunes via the "Logo settings" controls (see RenderApp + the SetLogo* setters); the px clamps stay
+    // compile-time. Defaults reproduce the prior hardcoded look: 15% width, 0.40 alpha, 0.25 RGB lift
+    // (= brightness 50% in the dashboard) and bottom-left placement.
+    private const float WatermarkMinWidth = 64f;
+    private const float WatermarkMaxWidth = 240f;
+    private float _widthFrac = 0.15f;    // fraction of cell width (dashboard 5–30%)
+    private float _opacity = 0.40f;      // alpha multiplier — subtle, but readable on every cell
+    private float _brightness = 0.25f;   // RGB lift toward white (0..0.5) so the dark-blue mark reads over live video
+    private int _logoCorner;             // 0=bottom-left (default), 1=bottom-right, 2=top-right, 3=top-left
+
+    /// <summary>Paint the InterMoor logo as a faint watermark in a chosen corner of every cell (default
+    /// bottom-left, mirroring where the health badge sits). Size, opacity, brightness and corner are live
+    /// dashboard knobs (the "Logo settings" controls); the watermark scales with the tiling from 1-up to
+    /// 16-up and is drawn at low opacity + an RGB lift via a <see cref="ColorMatrix"/>. Shares the overlay's
+    /// visibility (the H toggle) and the dashboard "Brand logo" switch.</summary>
+    private void DrawWatermark(Graphics g)
+    {
+        if (!_showLogo) return;
+        var logo = LogoImage.Default;
+        if (logo is null) return;
+
+        using var attrs = new ImageAttributes();
+        // Scale source alpha (keeps the watermark subtle) and lift RGB toward white so the dark-blue mark
+        // reads brighter over live video. The translation row (Matrix4x) adds a constant to each channel;
+        // GDI+ clamps to [0,1]. Fully-transparent pixels stay invisible (Premultiply zeros a==0).
+        var cm = new ColorMatrix
+        {
+            Matrix33 = _opacity,
+            Matrix40 = _brightness,
+            Matrix41 = _brightness,
+            Matrix42 = _brightness,
+        };
+        attrs.SetColorMatrix(cm);
+
+        // Size every cell's watermark off the *standard* cell width so the logo is one uniform size across the
+        // whole grid. Irregular layouts (e.g. 2-over-1) stretch the last row's cell edge-to-edge, so keying the
+        // size off each cell's own width would balloon that wide cell's logo. The narrowest quad == width/cols
+        // (the regular column); remainder-row cells are only ever wider, never narrower.
+        float refWidth = _quadrants.Length > 0 ? _quadrants[0].Width : 0;
+        for (int i = 1; i < _quadrants.Length; i++)
+            if (_quadrants[i].Width < refWidth) refWidth = _quadrants[i].Width;
+        float baseW = Math.Clamp(refWidth * _widthFrac, WatermarkMinWidth, WatermarkMaxWidth);
+
+        foreach (var quad in _quadrants)
+        {
+            float w = baseW;
+            if (w > quad.Width * 0.4f) w = quad.Width * 0.4f;   // never dominate a tiny cell
+            float h = w * logo.Height / logo.Width;
+            float inset = Math.Clamp(quad.Height / 540f, 0.85f, 2.2f) * 16f;  // match the badge inset
+
+            // Corner placement (0=BL default, 1=BR, 2=TR, 3=TL). TL deliberately overlaps the health badge.
+            float x = (_logoCorner == 1 || _logoCorner == 2) ? quad.Right - inset - w : quad.X + inset;
+            float y = (_logoCorner == 2 || _logoCorner == 3) ? quad.Y + inset : quad.Bottom - inset - h;
+
+            g.DrawImage(logo, new Rectangle((int)x, (int)y, (int)w, (int)h),
+                0, 0, logo.Width, logo.Height, GraphicsUnit.Pixel, attrs);
+        }
     }
 
     // ---------------------------------------------------------------- badge drawing
 
     private void DrawBadge(Graphics g, Rectangle quad, FeedController feed)
     {
-        // Scale all geometry to the quadrant so badges stay proportional from 1080p to 4K and beyond.
-        float scale = Math.Clamp(quad.Height / 540f, 0.85f, 2.2f);
+        // Scale all geometry to the quadrant so badges stay proportional from 1080p to 4K and beyond, then by
+        // the dashboard "Overlay settings" Size knob (_badgeScale). inset = 16*scale rides along, so a larger
+        // badge sits a touch further from its corner. Each renderer measures its pill then anchors it to the
+        // chosen corner (Position) via AnchorBadge(), so badge widths can stay dynamic.
+        float scale = Math.Clamp(quad.Height / 540f, 0.85f, 2.2f) * _badgeScale;
         float inset = 16f * scale;
-        float ox = quad.X + inset;
-        float oy = quad.Y + inset;
         float maxWidth = quad.Width - 2f * inset;   // keep a long vessel name inside its own quadrant
 
         Color led = LedColor(feed.Health);
@@ -161,7 +302,7 @@ internal sealed class OverlayForm : Form
         if (feed.NamesOnly)
         {
             string label = name.Length > 0 ? name : "Cell " + feed.CellNumber.ToString(CultureInfo.InvariantCulture);
-            DrawNamePill(g, ox, oy, scale, maxWidth, led, label);
+            DrawNamePill(g, quad, inset, scale, maxWidth, led, label);
             return;
         }
 
@@ -169,24 +310,39 @@ internal sealed class OverlayForm : Form
         // vessel name is configured we always show a nameplate, even when healthy, so every cell is labelled.
         if (feed.Health == FeedHealth.Healthy && name.Length == 0)
         {
-            DrawAmbient(g, ox, oy, scale, feed, led);
+            DrawAmbient(g, quad, inset, scale, feed, led);
             return;
         }
 
-        DrawPill(g, ox, oy, scale, maxWidth, feed, led, name);
+        DrawPill(g, quad, inset, scale, maxWidth, feed, led, name);
     }
 
-    /// <summary>Healthy feed: just a glowing LED + a faint cell number, so good video stays unobstructed.</summary>
-    private void DrawAmbient(Graphics g, float ox, float oy, float scale, FeedController feed, Color led)
+    /// <summary>Derive a badge's top-left draw origin from the active corner (<see cref="_badgeCorner"/>,
+    /// the dashboard Position knob). Badge widths are dynamic, so the caller measures its pill first then
+    /// anchors: 0=TL (default), 1=TR, 2=BR, 3=BL. Right-anchored when corner ∈ {1,2}; bottom-anchored when
+    /// corner ∈ {2,3}.</summary>
+    private void AnchorBadge(Rectangle quad, float inset, float w, float h, out float ox, out float oy)
+    {
+        ox = (_badgeCorner == 1 || _badgeCorner == 2) ? quad.Right - inset - w : quad.X + inset;
+        oy = (_badgeCorner == 2 || _badgeCorner == 3) ? quad.Bottom - inset - h : quad.Y + inset;
+    }
+
+    /// <summary>Healthy feed: just a glowing LED + a faint cell number, so good video stays unobstructed.
+    /// No pill surface, so the Opacity knob doesn't affect it (by design — it is already minimal).</summary>
+    private void DrawAmbient(Graphics g, Rectangle quad, float inset, float scale, FeedController feed, Color led)
     {
         float ledD = 13f * scale;
-        DrawLed(g, ox, oy, ledD, led);
-
         using var numFont = Theme.SemiBold(9.5f * scale);
         using var nb = new SolidBrush(Color.FromArgb(150, TextPrimary));
         using var fmt = Typographic();
         string n = feed.CellNumber.ToString(CultureInfo.InvariantCulture);
         var ns = g.MeasureString(n, numFont, int.MaxValue, fmt);
+
+        // Anchor by the LED + gap + number extent (the content row); the LED's soft glow may bleed a touch
+        // past it, exactly as it does at the default top-left corner.
+        AnchorBadge(quad, inset, ledD + 7f * scale + ns.Width, ledD, out float ox, out float oy);
+
+        DrawLed(g, ox, oy, ledD, led);
         g.DrawString(n, numFont, nb, ox + ledD + 7f * scale, oy + (ledD - ns.Height) / 2f, fmt);
     }
 
@@ -196,7 +352,7 @@ internal sealed class OverlayForm : Form
     /// (the green LED already signals LIVE), keeping the wall calm; trouble adds the status text back.
     /// The vessel name is ellipsized to <paramref name="maxWidth"/> so it can never spill past its quadrant.
     /// </summary>
-    private void DrawPill(Graphics g, float ox, float oy, float scale, float maxWidth, FeedController feed, Color led, string name)
+    private void DrawPill(Graphics g, Rectangle quad, float inset, float scale, float maxWidth, FeedController feed, Color led, string name)
     {
         float pad = 9f * scale;
         float gap = 9f * scale;
@@ -240,6 +396,8 @@ internal sealed class OverlayForm : Form
                        + (hasName ? nameSize.Width : 0)
                        + sepGap + statusW;
         float pillW = pad + contentW + pad;
+
+        AnchorBadge(quad, inset, pillW, pillH, out float ox, out float oy);
         var pill = new RectangleF(ox, oy, pillW, pillH);
 
         DrawPillSurface(g, pill, radius, scale);
@@ -296,7 +454,7 @@ internal sealed class OverlayForm : Form
     /// only a status LED + the vessel name (ellipsized to <paramref name="maxWidth"/>). No cell badge, no
     /// status word, no metric — the operator-friendly "vessel board" look.
     /// </summary>
-    private void DrawNamePill(Graphics g, float ox, float oy, float scale, float maxWidth, Color led, string label)
+    private void DrawNamePill(Graphics g, Rectangle quad, float inset, float scale, float maxWidth, Color led, string label)
     {
         float pad = 9f * scale;
         float gap = 9f * scale;
@@ -314,6 +472,8 @@ internal sealed class OverlayForm : Form
 
         float contentW = ledD + (label.Length > 0 ? gap + labelSize.Width : 0);
         float pillW = pad + contentW + pad;
+
+        AnchorBadge(quad, inset, pillW, pillH, out float ox, out float oy);
         var pill = new RectangleF(ox, oy, pillW, pillH);
 
         DrawPillSurface(g, pill, radius, scale);
@@ -332,18 +492,20 @@ internal sealed class OverlayForm : Form
     }
 
     /// <summary>Paint the shared frosted-glass pill surface — soft drop shadow, rounded fill, glass sheen and
-    /// hairline border. The content (badge/LED/name/status) is drawn on top by the caller.</summary>
-    private static void DrawPillSurface(Graphics g, RectangleF pill, float radius, float scale)
+    /// hairline border. The content (badge/LED/name/status) is drawn on top by the caller. Every surface alpha
+    /// is scaled by the dashboard Opacity knob (<see cref="ScaleAlpha"/>) so the whole panel fades coherently;
+    /// at the default (77%) the alphas are unchanged.</summary>
+    private void DrawPillSurface(Graphics g, RectangleF pill, float radius, float scale)
     {
         DrawShadow(g, pill, radius, scale);
 
         using var path = Rounded(pill, radius);
-        using (var fill = new SolidBrush(PillFill))
+        using (var fill = new SolidBrush(Color.FromArgb(ScaleAlpha(PillFill.A), PillFill)))
             g.FillPath(fill, path);
 
         var sheen = new RectangleF(pill.X, pill.Y, pill.Width, pill.Height * 0.5f);
         using (var glass = new LinearGradientBrush(sheen,
-                   Color.FromArgb(36, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), LinearGradientMode.Vertical))
+                   Color.FromArgb(ScaleAlpha(36), 255, 255, 255), Color.FromArgb(0, 255, 255, 255), LinearGradientMode.Vertical))
         {
             using var clip = g.Clip;
             g.SetClip(path, CombineMode.Replace);
@@ -351,9 +513,15 @@ internal sealed class OverlayForm : Form
             g.Clip = clip;
         }
 
-        using (var border = new Pen(PillBorder, 1f))
+        using (var border = new Pen(Color.FromArgb(ScaleAlpha(PillBorder.A), PillBorder), 1f))
             g.DrawPath(border, path);
     }
+
+    /// <summary>Scale a surface alpha byte by the badge-opacity factor (<see cref="_badgeOpacity"/> /
+    /// <see cref="DefaultBadgeOpacity"/>, = 1.0 at the 77% default), clamped to a valid 0..255 byte. Keeps the
+    /// frosted-glass fill/shadow/sheen/border fading in proportion as the Opacity knob moves.</summary>
+    private byte ScaleAlpha(int alpha) =>
+        (byte)Math.Clamp((int)MathF.Round(alpha * (_badgeOpacity / DefaultBadgeOpacity)), 0, 255);
 
     /// <summary>An LED dot with a soft outer glow and a small specular highlight.</summary>
     private static void DrawLed(Graphics g, float x, float y, float d, Color color)
@@ -378,15 +546,16 @@ internal sealed class OverlayForm : Form
             g.FillEllipse(hi, x + d * 0.26f, y + d * 0.20f, d * 0.30f, d * 0.30f);
     }
 
-    /// <summary>Layered, anti-aliased soft drop shadow built from a few stacked translucent passes.</summary>
-    private static void DrawShadow(Graphics g, RectangleF pill, float radius, float scale)
+    /// <summary>Layered, anti-aliased soft drop shadow built from a few stacked translucent passes. Its alpha
+    /// rides the badge Opacity knob (<see cref="ScaleAlpha"/>) with the rest of the surface.</summary>
+    private void DrawShadow(Graphics g, RectangleF pill, float radius, float scale)
     {
         for (int i = 4; i >= 1; i--)
         {
             var r = RectangleF.Inflate(pill, i * scale * 0.6f, i * scale * 0.6f);
             r.Offset(0, 2f * scale);
             using var path = Rounded(r, radius + i * scale * 0.6f);
-            using var b = new SolidBrush(Color.FromArgb(16, 0, 0, 0));
+            using var b = new SolidBrush(Color.FromArgb(ScaleAlpha(16), 0, 0, 0));
             g.FillPath(b, path);
         }
     }
