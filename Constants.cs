@@ -1,4 +1,4 @@
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>Shared names/codes used across the supervisor and render processes (spec §1, §3, §8).</summary>
 internal static class Constants
@@ -12,11 +12,11 @@ internal static class Constants
     public const int ExitStop = 42;
 
     // Named mutex so two render instances never fight for the monitor (§1).
-    public const string RenderMutexName = @"Global\MpvGrid.Render.Mutex.v1";
+    public const string RenderMutexName = @"Global\NavStream.Render.Mutex.v1";
 
     // Auto-reset event the supervisor sets to ask the current render instance to quit-and-stop;
     // also used by a new render instance to signal a stale one to exit (§1).
-    public const string RenderStopEventName = @"Global\MpvGrid.Render.StopEvent.v1";
+    public const string RenderStopEventName = @"Global\NavStream.Render.StopEvent.v1";
 
     // ---- Control dashboard (separate-process design, D-DASH-1) ----
 
@@ -25,14 +25,14 @@ internal static class Constants
 
     // Named pipe the render process serves and the dashboard process connects to. Machine-local,
     // same-user ACL. A fixed name so the dashboard re-finds the server after a grid restart.
-    public const string ControlPipeName = "MpvGrid.Control.v1";
+    public const string ControlPipeName = "NavStream.Control.v1";
 
     // Single-instance mutex so the supervisor never ends up with two tray dashboards.
-    public const string DashboardMutexName = @"Global\MpvGrid.Dashboard.Mutex.v1";
+    public const string DashboardMutexName = @"Global\NavStream.Dashboard.Mutex.v1";
 
     // Manual-reset event the dashboard's "Exit Application" sets to ask the supervisor to tear the
     // whole app down (render + dashboard + itself). The supervisor waits on it on a background thread.
-    public const string FullStopEventName = @"Global\MpvGrid.FullStop.Event.v1";
+    public const string FullStopEventName = @"Global\NavStream.FullStop.Event.v1";
 
     // Stream-feed stop/resume (dashboard "Live video feed" toggle). Unlike a full stop, this only
     // stops the video grid (render) and keeps it stopped — the supervisor + dashboard stay alive so
@@ -41,14 +41,14 @@ internal static class Constants
     //   • GridStop/GridStart  — auto-reset pulses the dashboard sets to request each transition.
     //   • GridStoppedState     — manual-reset flag the supervisor holds set while the grid is stopped,
     //                            so the dashboard can render the toggle/banner (even after a respawn).
-    public const string GridStopEventName = @"Global\MpvGrid.Grid.StopEvent.v1";
-    public const string GridStartEventName = @"Global\MpvGrid.Grid.StartEvent.v1";
-    public const string GridStoppedStateEventName = @"Global\MpvGrid.Grid.StoppedState.v1";
+    public const string GridStopEventName = @"Global\NavStream.Grid.StopEvent.v1";
+    public const string GridStartEventName = @"Global\NavStream.Grid.StartEvent.v1";
+    public const string GridStoppedStateEventName = @"Global\NavStream.Grid.StoppedState.v1";
 
     // Shutdown Displays (dashboard button): a harder counterpart to the grid-stop toggle. The supervisor
-    // stops + holds the grid (like a feed stop, so it won't relaunch), then force-kills every MpvGrid
+    // stops + holds the grid (like a feed stop, so it won't relaunch), then force-kills every NavStream
     // render process on the machine — its tracked child plus any orphans a dead supervisor left playing
     // (D5) — while keeping itself + the dashboard alive so the operator can relaunch later. Auto-reset
     // pulse the dashboard sets; the supervisor waits on it on a background thread.
-    public const string ShutdownDisplaysEventName = @"Global\MpvGrid.ShutdownDisplays.Event.v1";
+    public const string ShutdownDisplaysEventName = @"Global\NavStream.ShutdownDisplays.Event.v1";
 }

@@ -1,4 +1,4 @@
-/* MpvGrid browser control — dark "control-room" theme.
+/* NavStream browser control — dark "control-room" theme.
    Palette + typography mirror Theme.cs so the browser UI reads as the same product as the render grid. */
 
 @font-face {
@@ -358,6 +358,122 @@ main {
   margin-top: 5px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- roster (layout) editor inside the Streams panel ---- */
+
+.roster { margin-top: 4px; }
+.roster-intro {
+  margin: 10px 4px 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--t-md);
+}
+.roster-intro strong { color: var(--t-hi); font-weight: 600; }
+
+.roster-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.roster-input {
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--t-hi);
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 6px 9px;
+  min-width: 0;
+}
+.roster-input::placeholder { color: var(--t-lo); font-style: italic; font-weight: 400; }
+.roster-input:focus { outline: none; border-color: var(--accent); }
+.roster-input:disabled { opacity: 0.5; }
+.roster-url-input { flex: 2 1 240px; color: var(--accent); }
+.roster-name-box { flex: 1 1 160px; }
+
+.roster-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px 18px;
+}
+.roster-col {
+  background: var(--surface2);
+  border: 1px solid var(--outline-soft);
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+}
+.roster-col-head {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--t-lo);
+  margin-bottom: 8px;
+}
+.roster-count { font-variant-numeric: tabular-nums; color: var(--t-md); }
+.roster-list { display: flex; flex-direction: column; gap: 6px; }
+.roster-empty {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--t-lo);
+  padding: 4px 2px;
+}
+
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface3);
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.roster-cell {
+  flex: 0 0 auto;
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t-md);
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.roster-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.roster-name-txt {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--t-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-name-txt.unnamed { color: var(--t-lo); font-style: italic; font-weight: 400; }
+.roster-url-txt {
+  font-size: 13px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-row .btn { flex: 0 0 auto; }
+
+.roster-caution { margin: 12px 2px 0; font-size: 13px; color: var(--amber); letter-spacing: 0.2px; }
+.roster-dirty-note { margin: 12px 2px 0; font-size: 13px; color: var(--amber); letter-spacing: 0.2px; }
+.roster-foot { border-top: 1px solid var(--outline); padding-top: 14px; }
 
 /* ---- foot bar ---- */
 

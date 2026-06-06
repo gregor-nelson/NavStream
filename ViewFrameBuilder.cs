@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Server-side view model for the browser dashboard. Owns all the merge/staleness/banner logic (snapshot
@@ -36,6 +36,7 @@ internal sealed class ViewFrameBuilder : IDisposable
     private bool _connected;
     private DateTime _lastSnapshotUtc = DateTime.MinValue;
     private int _total, _healthy, _warn, _down;
+    private int _lastFeedCount;   // last live feed count; sizes the offline placeholders so the grid keeps its shape across the blink
 
     private readonly object _publishGate = new();   // serializes frame build + broadcast (single writer)
     private long _seq;
@@ -86,6 +87,7 @@ internal sealed class ViewFrameBuilder : IDisposable
     private void Tally(ControlSnapshot snap)
     {
         _total = snap.Feeds.Count;
+        _lastFeedCount = snap.Feeds.Count;   // remembered across a disconnect (OnConnection does NOT reset it) so the blink keeps N cells
         _healthy = _warn = _down = 0;
         foreach (var f in snap.Feeds)
         {
@@ -115,11 +117,12 @@ internal sealed class ViewFrameBuilder : IDisposable
     private ViewFrame BuildFrame()
     {
         bool connected; ControlSnapshot? last; DateTime lastUtc;
-        int total, healthy, warn, down;
+        int total, healthy, warn, down, lastFeedCount;
         lock (_gate)
         {
             connected = _connected; last = _last; lastUtc = _lastSnapshotUtc;
             total = _total; healthy = _healthy; warn = _warn; down = _down;
+            lastFeedCount = _lastFeedCount;
         }
 
         bool feedStopped = _signaller.ReadGridStopped();
@@ -146,9 +149,10 @@ internal sealed class ViewFrameBuilder : IDisposable
             Banner = BuildBanner(connected, feedStopped),
             Status = BuildStatus(connected, lastUtc, ageSec, stale, total, healthy, warn, down, connecting),
             Tally = new Tally { Total = total, Healthy = healthy, Warn = warn, Down = down, Connecting = connecting },
-            Feeds = BuildFeeds(connected, last),
+            Feeds = BuildFeeds(connected, last, lastFeedCount),
             Visual = connected && last is not null ? last.Visual : new VisualSnapshot(),
             Settings = connected && last is not null ? last.Settings : new SettingsSnapshot(),
+            InactivePool = connected && last is not null ? last.InactivePool : new List<InactiveStream>(),
         };
     }
 
@@ -200,15 +204,17 @@ internal sealed class ViewFrameBuilder : IDisposable
         return parts.Count == 0 ? "All streams healthy" : string.Join("  ·  ", parts);
     }
 
-    /// <summary>Live feed rows when connected; four offline placeholders when down so the table keeps its
-    /// shape (the form kept four rows and greyed them out via SetOffline).</summary>
-    private static List<FeedSnapshot> BuildFeeds(bool connected, ControlSnapshot? last)
+    /// <summary>Live feed rows when connected; otherwise <paramref name="lastFeedCount"/> offline placeholders
+    /// (clamped [1,16]) so the grid keeps its shape across the ~1 s restart blink instead of snapping to 4.
+    /// The exact count during the blink doesn't matter — it re-syncs to the real feed count on reconnect.</summary>
+    private static List<FeedSnapshot> BuildFeeds(bool connected, ControlSnapshot? last, int lastFeedCount)
     {
         if (connected && last is not null && last.Feeds.Count > 0)
             return last.Feeds;
 
-        var placeholders = new List<FeedSnapshot>(4);
-        for (int i = 0; i < 4; i++)
+        int n = Math.Clamp(lastFeedCount, 1, 16);
+        var placeholders = new List<FeedSnapshot>(n);
+        for (int i = 0; i < n; i++)
             placeholders.Add(new FeedSnapshot { Index = i, Cell = i + 1, State = "—", Health = "Offline" });
         return placeholders;
     }
@@ -247,6 +253,7 @@ internal sealed class ViewFrame
     public List<FeedSnapshot> Feeds { get; set; } = new();
     public VisualSnapshot Visual { get; set; } = new();
     public SettingsSnapshot Settings { get; set; } = new();
+    public List<InactiveStream> InactivePool { get; set; } = new(); // parked pool, for the dashboard roster editor
 }
 
 /// <summary>The big header line. <see cref="Kind"/> drives the colour ("connected"/"feedStopped"/"down").</summary>

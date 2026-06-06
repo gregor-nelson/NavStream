@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Named-event signalling to the supervisor, factored out so the tray host (and the HTTP bridge) can

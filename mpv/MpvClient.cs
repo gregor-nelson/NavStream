@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace MpvGrid.Mpv;
+namespace NavStream.Mpv;
 
 /// <summary>Event ids surfaced to the engine (subset of mpv_event_id — see <see cref="MpvNative"/>).</summary>
 internal enum MpvEventId

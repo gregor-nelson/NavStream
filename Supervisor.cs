@@ -1,17 +1,17 @@
 using System.Diagnostics;
 using System.Threading;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Supervisor mode (spec §1, D1/D5). Default behavior when the artifact is double-clicked: spawn
-/// <c>MpvGrid.exe --render</c>, wait for it to exit, relaunch. A render that exits within
+/// <c>NavStream.exe --render</c>, wait for it to exit, relaunch. A render that exits within
 /// SupervisorMinHealthyMs is treated as a crash-loop and relaunched with exponential backoff
 /// (1→2→4→8→15s cap). Never gives up. A deliberate stop (render exits with code 42) stops the
 /// supervisor too. Crucially does NOT use a kill-on-close Job Object: if the supervisor itself is
 /// killed, the render child keeps playing (D5).
 ///
-/// Also owns the tray control dashboard process (D-DASH-1): it spawns <c>MpvGrid.exe --dashboard</c>
+/// Also owns the tray control dashboard process (D-DASH-1): it spawns <c>NavStream.exe --dashboard</c>
 /// once and keeps it alive across render restarts on a background thread, and tears it down on a full
 /// stop (grid Ctrl+Shift+Q, or the dashboard's own "Exit Application" via the full-stop event).
 /// </summary>
@@ -33,7 +33,7 @@ internal static class Supervisor
 
         string exePath = Environment.ProcessPath
                          ?? Process.GetCurrentProcess().MainModule?.FileName
-                         ?? "MpvGrid.exe";
+                         ?? "NavStream.exe";
 
         Logger.Log($"Supervisor: starting. exe={exePath}, minHealthyMs={config.SupervisorMinHealthyMs}, backoffMaxMs={config.SupervisorBackoffMaxMs}");
 
@@ -54,7 +54,7 @@ internal static class Supervisor
         StartGridStartWaiter(gridStart, gridStopped);
 
         // Shutdown Displays: a harder counterpart to the stop toggle. Holds the grid stopped (like a feed
-        // stop) and force-kills every MpvGrid render process on the machine, orphans included. Created
+        // stop) and force-kills every NavStream render process on the machine, orphans included. Created
         // before the dashboard is spawned so it can always OpenExisting it.
         var shutdownDisplays = new EventWaitHandle(false, EventResetMode.AutoReset, Constants.ShutdownDisplaysEventName);
         StartShutdownDisplaysWaiter(shutdownDisplays, gridStopped);
@@ -259,7 +259,7 @@ internal static class Supervisor
     }
 
     /// <summary>Wait for the dashboard's "Shutdown Displays" pulse: stop and hold the grid like a feed stop
-    /// (so the main loop won't relaunch), then force-kill every MpvGrid render process on the machine —
+    /// (so the main loop won't relaunch), then force-kill every NavStream render process on the machine —
     /// the current child plus any orphans a dead supervisor left playing (D5). Unlike the graceful stop
     /// toggle this skips the engine-cleanup wait: the operator asked for a hard kill of every render process.
     /// The supervisor + dashboard stay alive so the feed can be relaunched later.</summary>
@@ -285,7 +285,7 @@ internal static class Supervisor
         t.Start();
     }
 
-    /// <summary>Force-kill every MpvGrid render process on the machine: the current render child plus any
+    /// <summary>Force-kill every NavStream render process on the machine: the current render child plus any
     /// orphaned renders a previously-killed supervisor left playing (D5). Identifies them by image name
     /// minus the two known-good PIDs (this supervisor + the tray dashboard), so it needs no command-line
     /// probing and never touches the control panel. Best-effort per process.</summary>
@@ -293,7 +293,7 @@ internal static class Supervisor
     {
         int selfPid = Environment.ProcessId;
         int dashPid = _dashboardChild?.Id ?? -1;
-        string name = Process.GetCurrentProcess().ProcessName;   // image base name (no .exe), e.g. "MpvGrid"
+        string name = Process.GetCurrentProcess().ProcessName;   // image base name (no .exe), e.g. "NavStream"
 
         Process[] procs;
         try { procs = Process.GetProcessesByName(name); }

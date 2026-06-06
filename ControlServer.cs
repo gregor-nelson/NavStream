@@ -1,7 +1,7 @@
 using System.IO.Pipes;
 using System.Text.Json;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Render-side end of the control IPC (D-DASH-1). Runs a background accept loop on a named pipe:

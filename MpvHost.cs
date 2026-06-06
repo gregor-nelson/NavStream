@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// A minimal child control whose native window handle (<see cref="Control.Handle"/>) is the embed target

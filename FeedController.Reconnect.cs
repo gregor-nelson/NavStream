@@ -1,6 +1,6 @@
-using MpvGrid.Mpv;
+using NavStream.Mpv;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Step 5 — the independent per-feed reconnect state machine (spec §5, D4).

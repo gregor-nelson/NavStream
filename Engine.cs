@@ -1,6 +1,6 @@
-using MpvGrid.Mpv;
+using NavStream.Mpv;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Owns the 4 per-feed controllers (spec §4). Unlike the previous build there is no shared instance to

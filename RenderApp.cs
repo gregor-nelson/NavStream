@@ -1,6 +1,6 @@
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Orchestrates the render process: builds the grid window, the engine (4 feeds), and the health

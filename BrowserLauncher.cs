@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Opens the browser-based control UI as an ordinary web page in the operator's default browser — a

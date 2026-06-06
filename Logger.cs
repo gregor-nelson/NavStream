@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Tiny append-only logger shared by the supervisor and render processes (spec §6, §8).
@@ -12,7 +12,7 @@ namespace MpvGrid;
 internal static class Logger
 {
     private static readonly object Gate = new();
-    private static string _path = "mpvgrid.log";
+    private static string _path = "navstream.log";
     private static string _tag = "?";
     private static int _pid;
 

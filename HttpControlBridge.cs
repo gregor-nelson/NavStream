@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// The LAN HTTP/SSE bridge that backs the browser control UI. It serves the embedded web assets
@@ -79,11 +79,11 @@ internal sealed class HttpControlBridge : IDisposable
         _thread.Start();
         Logger.Log($"Bridge: listening on http://+:{p}/ — reachable on the LAN at http://<this-pc-ip>:{p} (no token).");
 
-        // Diagnostic hook for automation/tests: when MPVGRID_BRIDGE_URLFILE points at a path, write the
+        // Diagnostic hook for automation/tests: when NAVSTREAM_BRIDGE_URLFILE points at a path, write the
         // panel URL there so a test harness can reach the endpoints.
         try
         {
-            string? urlFile = Environment.GetEnvironmentVariable("MPVGRID_BRIDGE_URLFILE");
+            string? urlFile = Environment.GetEnvironmentVariable("NAVSTREAM_BRIDGE_URLFILE");
             if (!string.IsNullOrEmpty(urlFile)) File.WriteAllText(urlFile, BaseUrl);
         }
         catch { }
@@ -224,7 +224,7 @@ internal sealed class HttpControlBridge : IDisposable
     /// already permits the port, e.g. one configured by a prior run).</summary>
     private static void TryOpenFirewall(int port)
     {
-        const string ruleName = "MpvGrid Control Panel";
+        const string ruleName = "NavStream Control Panel";
         try
         {
             RunNetsh($"advfirewall firewall delete rule name=\"{ruleName}\"");

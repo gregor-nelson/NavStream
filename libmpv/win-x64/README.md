@@ -15,7 +15,7 @@ This folder holds the **pinned** `libmpv-2.dll` that the app P/Invokes (D1/D2 in
 `HANDOVER-mpv-migration-execution.md`). It is loaded at runtime by
 `NativeLibrary.SetDllImportResolver` from
 `AppContext.BaseDirectory\libmpv\win-x64\libmpv-2.dll` (see `Mpv\MpvNative.cs`, built in Phase 1),
-and copied next to the published exe by the `<None>` item in `MpvGrid.csproj`.
+and copied next to the published exe by the `<None>` item in `NavStream.csproj`.
 
 **Do not bundle this into the single-file exe** — `IncludeNativeLibrariesForSelfExtract=false`
 keeps it loose so the resolver's fixed path can find it.

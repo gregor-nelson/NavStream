@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
-  <title>MpvGrid — Control</title>
+  <title>NavStream — Control</title>
   <link rel="icon" href="/favicon.ico" />
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -86,12 +86,12 @@
       <span class="switch-label">Live video feed</span>
     </label>
     <button id="restart" type="button" class="btn btn-primary"
-            title="Restart the whole 4-feed display now (the grid blinks ~1 s). Enabled only while the grid is connected.">Restart Display</button>
+            title="Restart the whole display now (the grid blinks ~1 s). Enabled only while the grid is connected.">Restart Display</button>
     <button id="shutdown" type="button" class="btn btn-danger"
-            title="Disconnect every stream and force-kill all MpvGrid render processes (including any orphaned ones). This dashboard stays open — switch 'Live video feed' back on to relaunch.">Shutdown Displays</button>
+            title="Disconnect every stream and force-kill all NavStream render processes (including any orphaned ones). This dashboard stays open — switch 'Live video feed' back on to relaunch.">Shutdown Displays</button>
     <span id="cmd-feedback" class="feedback"></span>
     <button id="exit" type="button" class="btn btn-danger"
-            title="Exit MpvGrid completely — stop every stream and close the whole application (render + this dashboard).">Exit Application</button>
+            title="Exit NavStream completely — stop every stream and close the whole application (render + this dashboard).">Exit Application</button>
   </section>
 
   <main>
@@ -129,6 +129,41 @@
         <span class="panel-sub">vessel name · source URL · live monitor</span>
       </div>
       <div id="feeds" class="feeds"></div>
+
+      <div class="roster" id="roster">
+        <div class="settings-sub">Roster (layout)</div>
+        <p class="roster-intro">Choose which streams make up the wall — add a source, deactivate one to park it in
+          the pool, or reactivate a parked one, then <strong>Apply</strong> to rebuild the wall. It auto-tiles to
+          the number of active streams.</p>
+        <div class="roster-add">
+          <input type="text" id="roster-url" class="roster-input roster-url-input" placeholder="rtsp://host/path"
+                 spellcheck="false" maxlength="512" />
+          <input type="text" id="roster-name" class="roster-input roster-name-box" placeholder="Vessel name (optional)"
+                 maxlength="64" />
+          <button id="roster-add" type="button" class="btn btn-sm">Add stream</button>
+        </div>
+        <div class="roster-cols">
+          <div class="roster-col">
+            <div class="roster-col-head">Active <span id="roster-active-count" class="roster-count">0</span></div>
+            <div id="roster-active" class="roster-list"></div>
+          </div>
+          <div class="roster-col">
+            <div class="roster-col-head">Inactive pool <span id="roster-pool-count" class="roster-count">0</span></div>
+            <div id="roster-pool" class="roster-list"></div>
+          </div>
+        </div>
+        <div id="roster-caution" class="roster-caution" hidden></div>
+        <div id="roster-dirty-note" class="roster-dirty-note" hidden>Per-stream name / source edits are paused
+          while the roster has unsaved changes — Apply or Discard to resume.</div>
+        <div class="panel-foot roster-foot">
+          <button id="roster-apply" type="button" class="btn btn-primary">Apply layout &amp; restart</button>
+          <button id="roster-discard" type="button" class="btn">Discard</button>
+          <span id="roster-feedback" class="feedback"></span>
+          <span class="panel-hint">Applying rebuilds the wall — it blinks ~1 s while the display restarts.
+            Active cells aren't reorderable yet.</span>
+        </div>
+      </div>
+
       <div class="panel-foot">
         <button id="save" type="button" class="btn btn-primary">Save to Config</button>
         <span id="streams-feedback" class="feedback"></span>

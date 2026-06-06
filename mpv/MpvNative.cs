@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 
-namespace MpvGrid.Mpv;
+namespace NavStream.Mpv;
 
 /// <summary>
 /// The raw libmpv C ABI (D1 — hand-rolled P/Invoke, no managed wrapper package). Every entry
@@ -51,7 +51,7 @@ internal static class MpvNative
                 $"No loose libmpv-2.dll beside the exe and no embedded '{LibFile}' resource to fall back on.");
 
         long len = res.Length;
-        string dir = Path.Combine(Path.GetTempPath(), "MpvGrid", "libmpv-" + len.ToString(CultureInfo.InvariantCulture));
+        string dir = Path.Combine(Path.GetTempPath(), "NavStream", "libmpv-" + len.ToString(CultureInfo.InvariantCulture));
         string dest = Path.Combine(dir, LibFile);
         if (File.Exists(dest) && new FileInfo(dest).Length == len)
             return dest;

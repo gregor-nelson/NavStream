@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// The tray control dashboard process (--dashboard, D-DASH-1/4). A separate process from the render

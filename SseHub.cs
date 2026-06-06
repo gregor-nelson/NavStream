@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Holds the set of connected Server-Sent-Events clients (one per open browser tab) and fans a single

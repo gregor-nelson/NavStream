@@ -6,7 +6,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 
-// Generates app.ico for MpvGrid from the InterMoor logo: a brand-blue gradient
+// Generates app.ico for NavStream from the InterMoor logo: a brand-blue gradient
 // disc with the white "fountain" blades sampled directly from the logo so the
 // emblem shape matches exactly. Supersampled at 1024px, downscaled into a
 // 9-size .ico (256..16). Usage: iconmaker <srcJpg> <outIco> <previewPng>

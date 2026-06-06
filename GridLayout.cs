@@ -1,6 +1,6 @@
 using System.Drawing;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Exact N-up grid math (spec §3 + dynamic-grid Tier 1). Deliberately NOT using TableLayoutPanel — its

@@ -1,7 +1,7 @@
 using System.Globalization;
-using MpvGrid.Mpv;
+using NavStream.Mpv;
 
-namespace MpvGrid;
+namespace NavStream;
 
 internal enum FeedState { Connecting, Playing, Stalled, Reconnecting }
 

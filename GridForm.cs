@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// The single borderless render window (spec §3, D6). Hosts N (1–16) <see cref="MpvHost"/> controls
@@ -32,7 +32,7 @@ internal sealed class GridForm : Form
         _config = config;
 
         FormBorderStyle = FormBorderStyle.None;
-        Text = "MpvGrid";
+        Text = "NavStream";
         BackColor = Color.Black;
         ShowInTaskbar = false;
         KeyPreview = true;

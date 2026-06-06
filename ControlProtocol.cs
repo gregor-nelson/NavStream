@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Wire types for the control dashboard IPC (D-DASH-1: separate process over a named pipe).

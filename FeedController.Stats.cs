@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Step 6 — mpv property sampling, stall detection feed, and health diagnosis (spec §6, §7).

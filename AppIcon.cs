@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Reflection;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// The application icon (a 2x2 "video wall" matching the 4-feed grid), loaded once from the
@@ -22,8 +22,8 @@ internal static class AppIcon
         try
         {
             var asm = Assembly.GetExecutingAssembly();
-            // RootNamespace ("MpvGrid") + file name -> "MpvGrid.app.ico".
-            using var stream = asm.GetManifestResourceStream("MpvGrid.app.ico");
+            // RootNamespace ("NavStream") + file name -> "NavStream.app.ico".
+            using var stream = asm.GetManifestResourceStream("NavStream.app.ico");
             return stream is null ? null : new Icon(stream);
         }
         catch

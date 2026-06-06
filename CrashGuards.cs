@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Crash-safety plumbing (spec §8). Suppresses the Windows Error Reporting dialog (so an

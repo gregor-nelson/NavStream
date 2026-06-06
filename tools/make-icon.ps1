@@ -1,4 +1,4 @@
-# Generates app.ico — a 2x2 "video wall" icon matching MpvGrid's 4-feed layout.
+# Generates app.ico — a 2x2 "video wall" icon matching NavStream's 4-feed layout.
 # Dark rounded panel with four rounded cells (orange/blue accents) on a near-black ground.
 # Emits a multi-resolution ICO (16/20/24/32/40/48/64/128/256) with PNG-compressed entries.
 Add-Type -AssemblyName System.Drawing

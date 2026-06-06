@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Runtime configuration (spec §7). Loaded from <c>streams.json</c> next to the exe.
@@ -96,7 +96,7 @@ internal sealed class Config
     // ---- monitoring (D8, §6) ----
     public bool OverlayEnabled { get; set; } = true;
     public int RefreshSeconds { get; set; } = 2;
-    public string LogPath { get; set; } = "mpvgrid.log";
+    public string LogPath { get; set; } = "navstream.log";
 
     // ---- supervisor (D1, §1) ----
     public int SupervisorMinHealthyMs { get; set; } = 10000;
@@ -225,7 +225,7 @@ internal sealed class Config
         if (StallTimeoutMs < 1000) StallTimeoutMs = 1000;
 
         if (RefreshSeconds < 1) RefreshSeconds = 1;
-        if (string.IsNullOrWhiteSpace(LogPath)) LogPath = "mpvgrid.log";
+        if (string.IsNullOrWhiteSpace(LogPath)) LogPath = "navstream.log";
 
         if (SupervisorMinHealthyMs < 0) SupervisorMinHealthyMs = 0;
         if (SupervisorBackoffMaxMs < 1000) SupervisorBackoffMaxMs = 1000;

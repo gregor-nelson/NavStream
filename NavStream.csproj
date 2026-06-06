@@ -7,8 +7,8 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>MpvGrid</AssemblyName>
-    <RootNamespace>MpvGrid</RootNamespace>
+    <AssemblyName>NavStream</AssemblyName>
+    <RootNamespace>NavStream</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
 
@@ -28,7 +28,7 @@
 
   <!-- Architecture-A sources kept on disk for reference only; never compiled. The tools\ tree holds
        standalone helper projects (e.g. iconmaker) with their own AssemblyInfo — exclude them too, or the
-       implicit **\*.cs glob compiles their assembly attributes into MpvGrid (CS0579 duplicate attribute). -->
+       implicit **\*.cs glob compiles their assembly attributes into NavStream (CS0579 duplicate attribute). -->
   <ItemGroup>
     <Compile Remove="reference\**\*.cs" />
     <Compile Remove="tools\**\*.cs" />

@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 internal static class Program
 {

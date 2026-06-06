@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// The tray host for the control dashboard (D-DASH-1/4) — the <see cref="ApplicationContext"/> that is
@@ -36,7 +36,7 @@ internal sealed class TrayContext : ApplicationContext
         _tray = new NotifyIcon
         {
             Icon = AppIcon.Default ?? SystemIcons.Application,
-            Text = "MpvGrid control dashboard",
+            Text = "NavStream control dashboard",
             Visible = true,
         };
         _tray.DoubleClick += (_, _) => OpenDashboard();
@@ -45,13 +45,13 @@ internal sealed class TrayContext : ApplicationContext
         bool bound = _bridge.Start();
         if (bound)
         {
-            // Open the dashboard web page in the default browser on launch. (Set MPVGRID_NO_BROWSER=1
+            // Open the dashboard web page in the default browser on launch. (Set NAVSTREAM_NO_BROWSER=1
             // to suppress the auto-open — used by automated tests / headless runs; the tray stays live.)
-            if (Environment.GetEnvironmentVariable("MPVGRID_NO_BROWSER") != "1") OpenDashboard();
+            if (Environment.GetEnvironmentVariable("NAVSTREAM_NO_BROWSER") != "1") OpenDashboard();
         }
         else
         {
-            _tray.ShowBalloonTip(5000, "MpvGrid",
+            _tray.ShowBalloonTip(5000, "NavStream",
                 "Web control panel unavailable (no local port). Tray menu still works.", ToolTipIcon.Warning);
         }
     }
@@ -74,7 +74,7 @@ internal sealed class TrayContext : ApplicationContext
         if (_bridge.IsRunning && _bridge.BaseUrl is { } url)
             BrowserLauncher.Launch(url);
         else
-            _tray.ShowBalloonTip(4000, "MpvGrid", "Web control panel unavailable.", ToolTipIcon.Warning);
+            _tray.ShowBalloonTip(4000, "NavStream", "Web control panel unavailable.", ToolTipIcon.Warning);
     }
 
     /// <summary>Tray "Shutdown Displays": confirm, then ask the supervisor to hard-stop + force-kill every
@@ -82,15 +82,15 @@ internal sealed class TrayContext : ApplicationContext
     private void ShutdownDisplaysFromTray()
     {
         if (MessageBox.Show(
-                "Shut down all displays now? This disconnects every stream and force-kills all MpvGrid "
+                "Shut down all displays now? This disconnects every stream and force-kills all NavStream "
                 + "render processes (including any orphaned ones). The grid goes dark; this dashboard "
                 + "stays open — switch 'Live video feed' back on to relaunch.",
-                "MpvGrid — Shutdown Displays",
+                "NavStream — Shutdown Displays",
                 MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK)
             return;
 
         if (!_signaller.SignalShutdownDisplays())
-            _tray.ShowBalloonTip(4000, "MpvGrid", "Can't reach the supervisor to shut down displays.", ToolTipIcon.Warning);
+            _tray.ShowBalloonTip(4000, "NavStream", "Can't reach the supervisor to shut down displays.", ToolTipIcon.Warning);
     }
 
     /// <summary>

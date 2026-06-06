@@ -5,7 +5,7 @@ using System.Drawing.Text;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Dark "control-room" visual palette for the operator UI, keyed to the InterMoor app icon

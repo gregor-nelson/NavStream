@@ -1,7 +1,7 @@
 using System.IO.Pipes;
 using System.Text.Json;
 
-namespace MpvGrid;
+namespace NavStream;
 
 /// <summary>
 /// Dashboard-side end of the control IPC (D-DASH-1). A background thread keeps a connection to the

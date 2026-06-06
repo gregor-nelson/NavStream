@@ -1,6 +1,6 @@
 'use strict';
 
-// MpvGrid browser control — Phase 3 (final): live renderer + the full operator control set.
+// NavStream browser control — Phase 3 (final): live renderer + the full operator control set.
 // The server (ViewFrameBuilder) still does all the merge/staleness/banner logic and pushes a flat
 // ViewFrame over SSE; this script paints it AND sends operator actions back via POST /command. It holds
 // no business logic — every command is one documented verb the C# dispatcher (TrayContext.OnCommand)
@@ -46,6 +46,19 @@
     // streams panel
     save: document.getElementById('save'),
     streamsFeedback: document.getElementById('streams-feedback'),
+    // roster (layout) editor
+    rosterUrl: document.getElementById('roster-url'),
+    rosterName: document.getElementById('roster-name'),
+    rosterAdd: document.getElementById('roster-add'),
+    rosterActive: document.getElementById('roster-active'),
+    rosterPool: document.getElementById('roster-pool'),
+    rosterActiveCount: document.getElementById('roster-active-count'),
+    rosterPoolCount: document.getElementById('roster-pool-count'),
+    rosterApply: document.getElementById('roster-apply'),
+    rosterDiscard: document.getElementById('roster-discard'),
+    rosterFeedback: document.getElementById('roster-feedback'),
+    rosterCaution: document.getElementById('roster-caution'),
+    rosterDirtyNote: document.getElementById('roster-dirty-note'),
     // mpv settings panel (the whole <fieldset> disables together when the grid is down)
     settingsFields: document.getElementById('settings-fields'),
     netCache: document.getElementById('net-cache'),
@@ -86,6 +99,9 @@
   let namesLatched = false;    // names/names-only populated once per connection (seam: don't clobber edits)
   let settingsLatched = false; // mpv settings populated once per connection (same seam as names)
   let monitorCount = -1;       // current monitor-select option count (rebuild only when it changes)
+  let rosterLatched = false;   // roster draft seeded from a live frame at least once this connection
+  let lastFrame = null;        // last rendered frame, so Discard can re-seed without waiting for the next tick
+  const roster = { active: [], pool: [], dirty: false };  // membership draft (active arrays + parked pool)
 
   // ---- command channel (POST /command) ----
 
@@ -128,7 +144,7 @@
     });
 
     els.restart.addEventListener('click', async () => {
-      if (!confirm('Restart the whole 4-feed display now? (the grid blinks ~1 s)')) return;
+      if (!confirm('Restart the whole display now? (the grid blinks ~1 s)')) return;
       if (!(await send({ name: 'restartDisplay' }))) feedback(els.cmdFeedback, "Couldn't reach the grid.", 'warn');
     });
 
@@ -191,7 +207,7 @@
     });
 
     els.shutdown.addEventListener('click', async () => {
-      if (!confirm('Shut down all displays now? This disconnects every stream and force-kills all MpvGrid '
+      if (!confirm('Shut down all displays now? This disconnects every stream and force-kills all NavStream '
         + 'render processes (including any orphaned ones). The grid goes dark; this dashboard stays open '
         + "— switch 'Live video feed' back on to relaunch.")) return;
       if (!(await send({ name: 'shutdownDisplays' })))
@@ -199,7 +215,7 @@
     });
 
     els.exit.addEventListener('click', async () => {
-      if (!confirm('Exit MpvGrid completely? This stops every stream and closes the whole application '
+      if (!confirm('Exit NavStream completely? This stops every stream and closes the whole application '
         + '(render + this dashboard).')) return;
       if (!(await send({ name: 'exitApplication' })))
         feedback(els.cmdFeedback, "Couldn't reach the app to exit.", 'warn');
@@ -261,6 +277,7 @@
   // ---- render ----
 
   function render(f) {
+    lastFrame = f;
     // Banner (big tri-state line) — colour driven entirely by the server's kind.
     els.banner.textContent = f.banner.text;
     els.banner.className = 'banner ' + f.banner.kind;
@@ -270,7 +287,7 @@
     els.status.className = 'status ' + (f.status.kind === 'none' ? '' : f.status.kind);
 
     // A dropped connection re-arms the name + settings latches so the next live snapshot repopulates them.
-    if (!f.connected && connected) { namesLatched = false; settingsLatched = false; }
+    if (!f.connected && connected) { namesLatched = false; settingsLatched = false; rosterLatched = false; }
     connected = f.connected;
     feedStopped = !!f.feedStopped;
 
@@ -278,6 +295,7 @@
     renderDisplay(f);
     renderSettings(f);
     renderPower(f);
+    renderRoster(f);
     renderFeeds(f.feeds || [], f.connected);
   }
 
@@ -370,7 +388,7 @@
 
     // Latch the mpv settings ONCE per connection (seam: don't clobber the operator's in-progress edits),
     // and only off a frame that actually carries live feed data — a freshly-connected frame can still hold
-    // the 4 offline placeholders, in which case f.settings is a zeroed default, not the real config.
+    // offline placeholders, in which case f.settings is a zeroed default, not the real config.
     const hasLive = (f.feeds || []).some((x) => x.health && x.health !== 'Offline');
     if (!f.connected || settingsLatched || !hasLive) return;
 
@@ -570,11 +588,16 @@
     // Name / names-only / reconnect only make sense on a feed that's actually up. The Source box is the
     // deliberate exception: editing it is how the operator FIXES a down feed (e.g. a wrong IP), so it stays
     // editable whenever the grid is connected — independent of this feed's own health.
-    const editable = isConn && !offline;
+    // §PRECEDENCE: while the roster draft is dirty the live active set must stay stable, so the per-cell
+    // name / names-only / reconnect / source edits are paused (the Source box's usual down-feed exception is
+    // overridden while dirty). r.isConn / r.offline are cached so applyDirtyGate() can re-gate without a frame.
+    r.isConn = isConn;
+    r.offline = offline;
+    const editable = isConn && !offline && !roster.dirty;
     r.name.disabled = !editable;
     r.namesOnly.disabled = !editable;
     r.reconnect.disabled = !editable;
-    r.url.disabled = !isConn;
+    r.url.disabled = !isConn || roster.dirty;
   }
 
   // ---- presentation helpers (pure formatting of data already in the frame) ----
@@ -606,6 +629,192 @@
   // this is safe to send wholesale — it just guarantees Save persists exactly what's shown.
   function gatherStreams() {
     return rows.map((r) => (r.url && !r.url.disabled ? r.url.value.trim() : ''));
+  }
+
+  // ---- roster (layout) editor: a membership draft over the live active set + the parked pool ----
+  // The draft mirrors live telemetry while clean; the first edit latches it dirty (stops re-seeding) and,
+  // per §PRECEDENCE, pauses the live per-cell edit controls so the active set can't shift under the draft.
+  // "Apply layout & restart" sends the whole desired roster as `applyRoster` (wholesale overwrite + restart).
+
+  let lastRosterSig = '';   // skips redundant repaints (the draft re-seeds every clean frame at 1 Hz)
+
+  function renderRoster(f) {
+    const hasLive = (f.feeds || []).some((x) => x.health && x.health !== 'Offline');
+    // Seed/refresh the draft from live telemetry while the operator hasn't started editing.
+    if (f.connected && hasLive && !roster.dirty) {
+      roster.active = (f.feeds || []).map((x) => ({ url: x.url || '', name: x.name || '', namesOnly: !!x.namesOnly }));
+      roster.pool = (f.inactivePool || []).map((p) => ({ url: p.url || '', name: p.name || '', namesOnly: !!p.namesOnly }));
+      rosterLatched = true;
+    }
+    paintRoster();
+  }
+
+  // Repaint both lists + the add/apply/guard states. Gated on a signature so the 1 Hz clean re-seed doesn't
+  // thrash the DOM when nothing actually changed.
+  function paintRoster() {
+    const enabled = connected && rosterLatched;
+    const sig = JSON.stringify({ a: roster.active, p: roster.pool, d: roster.dirty, e: enabled });
+    if (sig === lastRosterSig) return;
+    lastRosterSig = sig;
+
+    const n = roster.active.length;
+    els.rosterActiveCount.textContent = String(n);
+    els.rosterPoolCount.textContent = String(roster.pool.length);
+
+    paintList(els.rosterActive, roster.active, true, enabled);
+    paintList(els.rosterPool, roster.pool, false, enabled);
+
+    els.rosterAdd.disabled = !enabled || n >= 16;
+    els.rosterUrl.disabled = !enabled;
+    els.rosterName.disabled = !enabled;
+    // Apply only when there's something to commit and at least one active stream; Discard whenever dirty.
+    els.rosterApply.disabled = !connected || !roster.dirty || n === 0;
+    els.rosterDiscard.disabled = !roster.dirty;
+
+    // Risk caution (libmpv Phase-6 rig test pending): high-count walls aren't validated on this hardware yet.
+    if (n > 4) {
+      els.rosterCaution.hidden = false;
+      els.rosterCaution.textContent = '⚠ ' + n + ' active streams — walls above 4 aren’t validated on '
+        + 'this hardware yet (heavier CPU/GPU load). Confirm on the rig before relying on it.';
+    } else {
+      els.rosterCaution.hidden = true;
+    }
+    els.rosterDirtyNote.hidden = !roster.dirty;
+  }
+
+  function paintList(container, items, isActive, enabled) {
+    container.textContent = '';
+    if (items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'roster-empty';
+      empty.textContent = isActive ? 'No active streams.' : 'No parked streams.';
+      container.appendChild(empty);
+      return;
+    }
+    items.forEach((item, i) => container.appendChild(makeRosterRow(item, i, isActive, enabled)));
+  }
+
+  function makeRosterRow(item, i, isActive, enabled) {
+    const row = document.createElement('div');
+    row.className = 'roster-row';
+
+    if (isActive) {
+      const cell = document.createElement('span');
+      cell.className = 'roster-cell';
+      cell.textContent = String(i + 1);
+      row.appendChild(cell);
+    }
+
+    const label = document.createElement('span');
+    label.className = 'roster-label';
+    const nameTxt = document.createElement('span');
+    nameTxt.className = 'roster-name-txt' + (item.name ? '' : ' unnamed');
+    nameTxt.textContent = item.name || 'Unnamed';
+    const urlTxt = document.createElement('span');
+    urlTxt.className = 'roster-url-txt';
+    urlTxt.textContent = item.url;
+    label.append(nameTxt, urlTxt);
+    label.title = (item.name ? item.name + '\n' : '') + item.url;
+    row.appendChild(label);
+
+    if (isActive) {
+      row.append(
+        btn('Deactivate', enabled && roster.active.length > 1, () => rosterDeactivate(i)),
+        btn('Remove', enabled && roster.active.length > 1, () => rosterRemove(i)),
+      );
+    } else {
+      row.append(
+        btn('Activate', enabled && roster.active.length < 16, () => rosterActivate(i)),
+        btn('Delete', enabled, () => rosterDelete(i)),
+      );
+    }
+    return row;
+  }
+
+  function btn(text, on, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm';
+    b.textContent = text;
+    b.disabled = !on;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  // Mutations — each marks the draft dirty (stops re-seeding + pauses live edits) and repaints.
+  function rosterDirty() {
+    roster.dirty = true;
+    lastRosterSig = '';   // force the next paint through
+    paintRoster();
+    applyDirtyGate();
+  }
+  function rosterAddStream() {
+    const url = els.rosterUrl.value.trim();
+    if (!url) { feedback(els.rosterFeedback, 'Enter a source URL to add.', 'warn'); return; }
+    if (roster.active.length >= 16) { feedback(els.rosterFeedback, 'Wall is full (16 active).', 'warn'); return; }
+    roster.active.push({ url, name: els.rosterName.value.trim(), namesOnly: false });
+    els.rosterUrl.value = '';
+    els.rosterName.value = '';
+    rosterDirty();
+  }
+  function rosterRemove(i) { roster.active.splice(i, 1); rosterDirty(); }
+  function rosterDeactivate(i) {
+    const [it] = roster.active.splice(i, 1);
+    if (it) roster.pool.push(it);
+    rosterDirty();
+  }
+  function rosterActivate(i) {
+    if (roster.active.length >= 16) { feedback(els.rosterFeedback, 'Wall is full (16 active).', 'warn'); return; }
+    const [it] = roster.pool.splice(i, 1);
+    if (it) roster.active.push(it);
+    rosterDirty();
+  }
+  function rosterDelete(i) { roster.pool.splice(i, 1); rosterDirty(); }
+
+  // §PRECEDENCE: while the draft is dirty, pause the per-cell edit controls in the feed cards until
+  // Apply or Discard. Re-gates immediately (no need to wait for the next frame) using cached row state.
+  function applyDirtyGate() {
+    for (const r of rows) {
+      const editable = r.isConn && !r.offline && !roster.dirty;
+      r.name.disabled = !editable;
+      r.namesOnly.disabled = !editable;
+      r.reconnect.disabled = !editable;
+      r.url.disabled = !r.isConn || roster.dirty;
+    }
+    els.rosterDirtyNote.hidden = !roster.dirty;
+  }
+
+  function wireRoster() {
+    els.rosterAdd.addEventListener('click', rosterAddStream);
+    els.rosterUrl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rosterAddStream(); } });
+    els.rosterName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rosterAddStream(); } });
+
+    els.rosterApply.addEventListener('click', async () => {
+      if (roster.active.length === 0) return;
+      const ok = await send({
+        name: 'applyRoster',
+        streams: roster.active.map((a) => a.url),
+        names: roster.active.map((a) => a.name),
+        namesOnly: roster.active.map((a) => a.namesOnly),
+        inactivePool: roster.pool,
+      });
+      if (!ok) { feedback(els.rosterFeedback, "Couldn't reach the grid.", 'warn'); return; }
+      feedback(els.rosterFeedback, 'Applying — the wall blinks ~1 s while it restarts.', 'ok');
+      // The restart drops SSE; on reconnect the (now clean) draft re-seeds from the new live roster.
+      roster.dirty = false;
+      lastRosterSig = '';
+      applyDirtyGate();
+      paintRoster();
+    });
+
+    els.rosterDiscard.addEventListener('click', () => {
+      roster.dirty = false;
+      lastRosterSig = '';
+      if (lastFrame) renderRoster(lastFrame);   // re-seed from the latest frame (clean ⇒ mirrors live)
+      else paintRoster();
+      applyDirtyGate();
+      feedback(els.rosterFeedback, 'Discarded — roster mirrors the live grid.', 'ok');
+    });
   }
 
   // ---- custom tooltips ----------------------------------------------------
@@ -730,6 +939,7 @@
   }
 
   wireControls();
+  wireRoster();
   wireTooltips();
   connect();
 })();
