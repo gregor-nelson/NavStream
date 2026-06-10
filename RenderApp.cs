@@ -3,9 +3,12 @@ using System.Windows.Forms;
 namespace NavStream;
 
 /// <summary>
-/// Orchestrates the render process: builds the grid window, the engine (4 feeds), and the health
-/// overlay, and wires the hotkey callbacks. Engine creation is deferred until the form is shown so
-/// the VideoView native handles exist before MediaPlayers bind to them.
+/// Orchestrates the render process: builds one grid window + health overlay per configured display,
+/// ONE shared engine over the concatenation of every form's views (forms in display order ⇒ global
+/// feed order), and wires the hotkey callbacks identically on every form (global indices, so any
+/// focused form can drive any feed). Engine creation is deferred until the LAST form is shown so the
+/// native handles exist before mpv binds to them. Closing any form closes them all (symmetric
+/// lifetime) and the process exits 0 → the supervisor relaunches.
 ///
 /// Also hosts the control IPC server (D-DASH-1): it publishes per-feed telemetry + current config to
 /// the separate dashboard process and executes the operator commands the dashboard sends back, each
@@ -14,69 +17,123 @@ namespace NavStream;
 internal sealed class RenderApp
 {
     private readonly Config _config;
-    private GridForm? _form;
+    private readonly List<GridForm> _forms = new();
+    private readonly List<OverlayForm> _overlays = new();
+    private readonly List<(int Offset, int Count)> _slices = new();   // per display: slice of the flat feed list
+    private ApplicationContext? _ctx;
+    private int _shownCount;
+    private bool _closing;
     private Engine? _engine;
-    private OverlayForm? _overlay;
     private ControlServer? _server;
 
     public RenderApp(Config config) => _config = config;
 
     public void Run()
     {
-        _form = new GridForm(_config);
-        _form.Shown += OnFormShown;
-        _form.FormClosed += (_, _) => Teardown();
+        var partition = _config.GetDisplayPartition();
 
-        Application.Run(_form);
+        // Normalize rule 6: a fixed last layout may not have capacity for every stream — those render nowhere.
+        int assigned = partition.Sum(p => p.Count);
+        if (assigned < _config.Streams.Count)
+            Logger.Log($"Render: {_config.Streams.Count - assigned} stream(s) unassigned — the wall has {assigned} cell(s); they will not render.");
+
+        foreach (var (display, offset, count) in partition)
+        {
+            var form = new GridForm(_config, display, _forms.Count);
+            form.Shown += OnAnyFormShown;
+            form.FormClosed += (_, _) => OnAnyFormClosed();
+            _forms.Add(form);
+            _slices.Add((offset, count));
+        }
+
+        // No MainForm — every form has the same say over the process lifetime (OnAnyFormClosed fans out).
+        _ctx = new ApplicationContext();
+        foreach (var form in _forms) form.Show();
+        Application.Run(_ctx);
     }
 
-    private void OnFormShown(object? sender, EventArgs e)
+    /// <summary>Any form closing tears the whole render process down (Esc anywhere, restartDisplay,
+    /// applyRoster, mutex displacement): close the rest, exit the message loop → Run returns → exit 0 →
+    /// supervisor relaunches. Guarded so the fan-out closes don't re-enter.</summary>
+    private void OnAnyFormClosed()
     {
-        if (_form is null || _engine is not null) return; // init once
+        if (_closing) return;
+        _closing = true;
+        Teardown();
+        foreach (var form in _forms)
+        {
+            try { if (!form.IsDisposed) form.Close(); } catch { /* already gone */ }
+        }
+        _ctx?.ExitThread();
+    }
 
+    private void OnAnyFormShown(object? sender, EventArgs e)
+    {
+        // Init only after the LAST form is shown, so every view's native handle is realized. All Show()
+        // calls precede Application.Run, so this lands within the first message pumps. The _closing check
+        // is defense-in-depth against a teardown (e.g. mutex displacement) landing between Shown events.
+        if (_closing || ++_shownCount < _forms.Count || _engine is not null) return;
+        InitEngine();
+    }
+
+    private void InitEngine()
+    {
         try
         {
-            _engine = new Engine(_config, _form.Views);
+            // ONE engine over all forms' views — forms are built in display order, so the concatenation
+            // is the flat global feed order (FeedController.Index/CellNumber stay continuous).
+            var allViews = _forms.SelectMany(f => f.Views).ToList();
+            _engine = new Engine(_config, allViews);
 
-            _overlay = new OverlayForm(_form, _form.Bounds, _config.AlwaysOnTop);
-            _overlay.SetFeeds(_engine.Feeds);
-            _overlay.Reposition(_form.Bounds);
+            var displays = _config.Displays!;
+            for (int d = 0; d < _forms.Count; d++)
+            {
+                var form = _forms[d];
+                var (offset, count) = _slices[d];
+                var spec = LayoutSpec.Parse(displays[d].Layout);
 
-            // Wire hotkeys.
-            _form.ForceReconnect = i =>
-            {
-                if (i >= 0 && i < _engine.Feeds.Count) _engine.Feeds[i].ForceReconnect();
-            };
-            _form.ToggleOverlay = () =>
-            {
-                // Keep Config (the dashboard's source of truth for overlay state) in sync with the
-                // H hotkey, then nudge the dashboard so its checkbox tracks the grid.
-                bool on = !(_overlay?.Visible ?? false);
-                SetOverlay(on);
-            };
-            _form.OnLayoutChanged = () =>
-            {
-                if (_form is not null) _overlay?.Reposition(_form.Bounds);
-            };
+                var overlay = new OverlayForm(form, form.Bounds, _config.AlwaysOnTop, spec);
+                overlay.SetFeeds(_engine.Feeds.Skip(offset).Take(count).ToList());
+                overlay.Reposition(form.Bounds);
+                _overlays.Add(overlay);
 
-            // Repaint overlay whenever any feed's state/stats change (marshalled to the UI thread),
-            // and push a fresh telemetry frame to the dashboard.
+                // Wire hotkeys — identical on every form: D1–D9 carry global indices into the shared
+                // engine, so any focused form can reconnect any feed on any display.
+                form.ForceReconnect = i =>
+                {
+                    if (i >= 0 && i < _engine.Feeds.Count) _engine.Feeds[i].ForceReconnect();
+                };
+                form.ToggleOverlay = () =>
+                {
+                    // Keep Config (the dashboard's source of truth for overlay state) in sync with the
+                    // H hotkey, then nudge the dashboard so its checkbox tracks the grid.
+                    SetOverlay(!_config.OverlayEnabled);
+                };
+                form.OnLayoutChanged = () => overlay.Reposition(form.Bounds);
+            }
+
+            // Repaint the owning overlay whenever any feed's state/stats change (marshalled to the UI
+            // thread), and push a fresh telemetry frame to the dashboard.
             foreach (var feed in _engine.Feeds)
                 feed.Changed += OnFeedChanged;
 
-            _overlay.SetLogoVisible(_config.LogoEnabled);
-            ApplyLogoParams();   // push persisted opacity/brightness/size/position into the overlay
-            ApplyBadgeParams();  // push persisted badge opacity/size/position into the overlay
-            _overlay.Visible = _config.OverlayEnabled;
-            _overlay.Show();
+            foreach (var overlay in _overlays)
+                overlay.SetLogoVisible(_config.LogoEnabled);
+            ApplyLogoParams();   // push persisted opacity/brightness/size/position into the overlays
+            ApplyBadgeParams();  // push persisted badge opacity/size/position into the overlays
+            foreach (var overlay in _overlays)
+            {
+                overlay.Visible = _config.OverlayEnabled;
+                overlay.Show();
+            }
 
             _engine.Start();
 
-            // Start the control IPC server now that engine + overlay exist.
+            // Start the control IPC server now that engine + overlays exist.
             _server = new ControlServer(BuildSnapshot, HandleCommand);
             _server.Start();
 
-            Logger.Log("Render: engine + overlay + control server initialized.");
+            Logger.Log($"Render: engine + {_overlays.Count} overlay(s) + control server initialized ({_forms.Count} display(s)).");
         }
         catch (Exception ex)
         {
@@ -85,19 +142,33 @@ internal sealed class RenderApp
         }
     }
 
-    /// <summary>Ask the render window to close from another thread (mutex displacement / supervisor stop).</summary>
+    /// <summary>Ask the render windows to close from another thread (mutex displacement / supervisor stop).
+    /// Closing one fans out to the rest via OnAnyFormClosed.</summary>
     public void RequestExit()
     {
-        var f = _form;
+        var f = _forms.FirstOrDefault();
         if (f is null || !f.IsHandleCreated) return;
         Logger.Log("Render: stop signalled by another instance — closing.");
         try { f.BeginInvoke(() => { try { f.Close(); } catch { } }); }
         catch { /* form already gone */ }
     }
 
+    /// <summary>The overlay that paints a given global feed index, via the display slices.</summary>
+    private OverlayForm? OverlayFor(int feedIndex)
+    {
+        for (int d = 0; d < _overlays.Count && d < _slices.Count; d++)
+        {
+            if (feedIndex >= _slices[d].Offset && feedIndex < _slices[d].Offset + _slices[d].Count)
+                return _overlays[d];
+        }
+        return null;
+    }
+
     private void OnFeedChanged(FeedController feed)
     {
-        var overlay = _overlay;
+        // Route the repaint to the owning overlay only — no need to rebuild every monitor-sized bitmap
+        // on each stat tick of a single feed.
+        var overlay = OverlayFor(feed.Index);
         if (overlay is not null && overlay.IsHandleCreated)
         {
             try { overlay.BeginInvoke(() => overlay.RenderNow()); }
@@ -141,6 +212,8 @@ internal sealed class RenderApp
             }
         }
 
+        int rendered = _slices.Sum(s => s.Count);   // cells actually on the wall (Σ slice counts)
+
         snap.Visual = new VisualSnapshot
         {
             OverlayEnabled = _config.OverlayEnabled,   // kept in sync on every toggle (avoids cross-thread control reads)
@@ -152,10 +225,17 @@ internal sealed class RenderApp
             BadgeOpacityPct = _config.BadgeOpacityPct,
             BadgeSizePct = _config.BadgeSizePct,
             BadgePosition = _config.BadgePosition,
-            Monitor = _config.Monitor,
+            Monitor = _config.Monitor,   // legacy mirror of Displays[0].Monitor (old clients keep working)
             MonitorCount = Screen.AllScreens.Length,
             Borderless = _config.Borderless,
             AlwaysOnTop = _config.AlwaysOnTop,
+            // Copy (not alias) so telemetry never shares the live config's display list.
+            Displays = (_config.Displays ?? new List<DisplayConfig>())
+                .Select(d => new DisplayConfig { Monitor = d.Monitor, Layout = d.Layout, Cells = d.Cells })
+                .ToList(),
+            // Normalize rule 6 residual: streams beyond the wall's cell count have no feed (and no feed
+            // card), so the dashboard can only warn about them via this count.
+            UnassignedStreams = Math.Max(0, _config.Streams.Count - rendered),
         };
 
         snap.Settings = new SettingsSnapshot
@@ -183,13 +263,26 @@ internal sealed class RenderApp
             .Select(p => new InactiveStream { Url = p.Url, Name = p.Name, NamesOnly = p.NamesOnly })
             .ToList();
 
+        // Rule-6 residual streams (active in config, no cell on the wall): the roster editor seeds its
+        // draft from feeds + this list — without it an applyRoster would silently drop them from config.
+        for (int i = rendered; i < _config.Streams.Count; i++)
+        {
+            snap.UnassignedActive.Add(new InactiveStream
+            {
+                Url = _config.Streams[i],
+                Name = i < _config.Names.Count ? _config.Names[i] : "",
+                NamesOnly = i < _config.OverlayNamesOnly.Count && _config.OverlayNamesOnly[i],
+            });
+        }
+
         return snap;
     }
 
-    /// <summary>A command arrived from the dashboard (background thread). Marshal to the UI thread.</summary>
+    /// <summary>A command arrived from the dashboard (background thread). Marshal to the UI thread
+    /// (all forms share it — any realized handle will do).</summary>
     private void HandleCommand(ControlCommand cmd)
     {
-        var f = _form;
+        var f = _forms.FirstOrDefault();
         if (f is null || !f.IsHandleCreated) return;
         try { f.BeginInvoke(() => DispatchCommand(cmd)); }
         catch { /* form closing */ }
@@ -205,9 +298,9 @@ internal sealed class RenderApp
                 break;
 
             case ControlCommands.RestartDisplay:
-                // Same proven path as Esc: close the window → process exits 0 → supervisor relaunches.
+                // Same proven path as Esc: close a window (fans out to all) → exit 0 → supervisor relaunches.
                 Logger.Log("Control: restart display — closing render (supervisor will relaunch).");
-                _form?.Close();
+                _forms.FirstOrDefault()?.Close();
                 break;
 
             case ControlCommands.SetOverlay:
@@ -269,17 +362,50 @@ internal sealed class RenderApp
 
             // ---- Phase B: window / visual params (live) ----
             case ControlCommands.SetMonitor:
-                _form?.SetMonitor(cmd.IntValue);
+                // Index = display (old clients send no index ⇒ 0 ⇒ display 0, the legacy behavior). A stale
+                // client can target a display that no longer exists — drop the command rather than clamp it,
+                // or it would silently move a DIFFERENT display's window.
+                if (cmd.Index >= 0 && cmd.Index < _forms.Count)
+                {
+                    _forms[cmd.Index].SetMonitor(cmd.IntValue);
+                    var displays = _config.Displays!;
+                    _config.Monitor = displays[0].Monitor;   // keep the legacy key mirrored
+                    // Duplicates are allowed + logged: rejecting would deadlock a two-monitor swap, and the
+                    // unplug fallback (TargetScreenBounds → screen 0) can force a duplicate anyway.
+                    if (displays.GroupBy(x => x.Monitor).Any(g => g.Count() > 1))
+                        Logger.Log("Control: multiple displays now share a monitor (allowed; they will stack).");
+                }
+                else
+                    Logger.Log($"Control: setMonitor for display {cmd.Index} ignored — wall has {_forms.Count} display(s) (stale client?).");
                 _server?.PushNow();
                 break;
 
+            case ControlCommands.SetLayout:
+                // Live re-tile only — capacity-gated by GridForm (a partition change goes through the
+                // save+restart path instead). Push either way so the UI re-syncs. Same stale-index
+                // rejection as setMonitor: clamping would re-tile the wrong display.
+                if (cmd.Index >= 0 && cmd.Index < _forms.Count)
+                {
+                    var spec = LayoutSpec.Parse(cmd.StringValue);
+                    if (_forms[cmd.Index].SetLayout(spec) && cmd.Index < _overlays.Count)
+                        _overlays[cmd.Index].SetLayout(spec);
+                }
+                else
+                    Logger.Log($"Control: setLayout for display {cmd.Index} ignored — wall has {_forms.Count} display(s) (stale client?).");
+                _server?.PushNow();
+                break;
+
+            case ControlCommands.ApplyDisplays:
+                if (cmd.Displays is not null) ApplyDisplays(cmd.Displays);
+                break;
+
             case ControlCommands.SetBorderless:
-                _form?.SetBorderless(cmd.BoolValue);
+                foreach (var form in _forms) form.SetBorderless(cmd.BoolValue);
                 _server?.PushNow();
                 break;
 
             case ControlCommands.SetAlwaysOnTop:
-                _form?.SetAlwaysOnTop(cmd.BoolValue);
+                foreach (var form in _forms) form.SetAlwaysOnTop(cmd.BoolValue);
                 _server?.PushNow();
                 break;
 
@@ -290,7 +416,7 @@ internal sealed class RenderApp
                     string name = (cmd.StringValue ?? string.Empty).Trim();
                     _engine.Feeds[cmd.Index].SetName(name);
                     SetListItem(_config.Names, cmd.Index, name);   // mirror so Save persists it
-                    _overlay?.RenderNow();
+                    OverlayFor(cmd.Index)?.RenderNow();
                     _server?.PushNow();
                 }
                 break;
@@ -300,7 +426,7 @@ internal sealed class RenderApp
                 {
                     _engine.Feeds[cmd.Index].SetNamesOnly(cmd.BoolValue);
                     SetListItem(_config.OverlayNamesOnly, cmd.Index, cmd.BoolValue);   // mirror so Save persists it
-                    _overlay?.RenderNow();
+                    OverlayFor(cmd.Index)?.RenderNow();
                     _server?.PushNow();
                 }
                 break;
@@ -332,19 +458,19 @@ internal sealed class RenderApp
         }
     }
 
-    /// <summary>Apply overlay visibility live, keep Config in sync, and refresh the dashboard. UI thread.</summary>
+    /// <summary>Apply overlay visibility live (all displays), keep Config in sync, and refresh the dashboard. UI thread.</summary>
     private void SetOverlay(bool on)
     {
         _config.OverlayEnabled = on;
-        if (_overlay is not null) _overlay.Visible = on;
+        foreach (var overlay in _overlays) overlay.Visible = on;
         _server?.PushNow();
     }
 
-    /// <summary>Apply brand-watermark visibility live, keep Config in sync, and refresh the dashboard. UI thread.</summary>
+    /// <summary>Apply brand-watermark visibility live (all displays), keep Config in sync, and refresh the dashboard. UI thread.</summary>
     private void SetLogo(bool on)
     {
         _config.LogoEnabled = on;
-        if (_overlay is not null) _overlay.SetLogoVisible(on);
+        foreach (var overlay in _overlays) overlay.SetLogoVisible(on);
         _server?.PushNow();
     }
 
@@ -354,11 +480,13 @@ internal sealed class RenderApp
     /// after a single-knob command only repaints once. UI thread.</summary>
     private void ApplyLogoParams()
     {
-        if (_overlay is null) return;
-        _overlay.SetLogoOpacity(_config.LogoOpacityPct / 100f);
-        _overlay.SetLogoBrightness(_config.LogoBrightnessPct / 100f * 0.5f);
-        _overlay.SetLogoSize(_config.LogoSizePct / 100f);
-        _overlay.SetLogoPosition(_config.LogoPosition);
+        foreach (var overlay in _overlays)
+        {
+            overlay.SetLogoOpacity(_config.LogoOpacityPct / 100f);
+            overlay.SetLogoBrightness(_config.LogoBrightnessPct / 100f * 0.5f);
+            overlay.SetLogoSize(_config.LogoSizePct / 100f);
+            overlay.SetLogoPosition(_config.LogoPosition);
+        }
     }
 
     /// <summary>Push the three persisted health-overlay badge knobs from <see cref="Config"/> into the overlay,
@@ -367,10 +495,12 @@ internal sealed class RenderApp
     /// repaints once. UI thread.</summary>
     private void ApplyBadgeParams()
     {
-        if (_overlay is null) return;
-        _overlay.SetBadgeOpacity(_config.BadgeOpacityPct / 100f);
-        _overlay.SetBadgeSize(_config.BadgeSizePct / 100f);
-        _overlay.SetBadgePosition(_config.BadgePosition);
+        foreach (var overlay in _overlays)
+        {
+            overlay.SetBadgeOpacity(_config.BadgeOpacityPct / 100f);
+            overlay.SetBadgeSize(_config.BadgeSizePct / 100f);
+            overlay.SetBadgePosition(_config.BadgePosition);
+        }
     }
 
     /// <summary>Set a position-aligned config list element by index, padding the list with defaults up to
@@ -488,22 +618,53 @@ internal sealed class RenderApp
             act.Add((url, nm, no));
         }
 
+        // Keep the old lists so a failed save can roll the in-memory config back — otherwise the snapshot,
+        // a later plain Save, and the forms' DisplayConfig references would describe a roster that never
+        // made it to disk while the live wall still runs the old one.
+        var old = (_config.Streams, _config.Names, _config.OverlayNamesOnly, _config.InactivePool, _config.Displays);
+
         _config.Streams          = act.Select(a => a.url).ToList();
         _config.Names            = act.Select(a => a.name).ToList();
         _config.OverlayNamesOnly = act.Select(a => a.no).ToList();
         _config.InactivePool     = pool;          // Normalize() (inside Save) trims/filters/caps the pool
+        if (cmd.Displays is not null) _config.Displays = cmd.Displays;   // partition rides along; Normalize reconciles Cells vs the new roster size
         _config.Normalize();
 
         try { _config.Save(); }
         catch (Exception ex)
         {
-            Logger.Log($"Control: applyRoster save FAILED, NOT restarting: {ex.Message}");
+            (_config.Streams, _config.Names, _config.OverlayNamesOnly, _config.InactivePool, _config.Displays) = old;
+            _config.Normalize();   // idempotent — restores the canonical pre-apply state
+            Logger.Log($"Control: applyRoster save FAILED, NOT restarting (config rolled back): {ex.Message}");
             _server?.PushNow();
             return;   // keep the live grid on the old roster
         }
 
-        Logger.Log($"Control: roster applied ({_config.Streams.Count} active, {_config.InactivePool.Count} pooled) — restarting display.");
-        _form?.Close();   // exit 0 → supervisor relaunches → fresh Config.Load() reads the new roster
+        Logger.Log($"Control: roster applied ({_config.Streams.Count} active, {_config.InactivePool.Count} pooled, {_config.Displays!.Count} display(s)) — restarting display.");
+        _forms.FirstOrDefault()?.Close();   // fans out to all forms → exit 0 → supervisor relaunches → fresh Config.Load()
+    }
+
+    /// <summary>Apply a wholesale display partition from the dashboard: overwrite, Normalize (which
+    /// reconciles Cells vs the stream count), persist, then restart so the fresh process rebuilds the
+    /// forms — same save-fail-⇒-no-restart guard as <see cref="ApplyRoster"/>. UI thread.</summary>
+    private void ApplyDisplays(List<DisplayConfig> displays)
+    {
+        var old = _config.Displays;   // for rollback — same reasoning as ApplyRoster
+        _config.Displays = displays;
+        _config.Normalize();
+
+        try { _config.Save(); }
+        catch (Exception ex)
+        {
+            _config.Displays = old;
+            _config.Normalize();   // idempotent — restores the canonical pre-apply state
+            Logger.Log($"Control: applyDisplays save FAILED, NOT restarting (config rolled back): {ex.Message}");
+            _server?.PushNow();
+            return;   // keep the live wall on the old partition
+        }
+
+        Logger.Log($"Control: display partition applied ({_config.Displays!.Count} display(s)) — restarting display.");
+        _forms.FirstOrDefault()?.Close();   // fans out to all forms → exit 0 → supervisor relaunches
     }
 
     /// <summary>Persist the current live config to streams.json (D-DASH-3 Save). UI thread.</summary>
@@ -527,8 +688,11 @@ internal sealed class RenderApp
         _server = null;
         try { _engine?.Dispose(); } catch { }
         _engine = null;
-        try { _overlay?.Dispose(); } catch { }
-        _overlay = null;
+        foreach (var overlay in _overlays)
+        {
+            try { overlay.Dispose(); } catch { }
+        }
+        _overlays.Clear();
         Logger.Log("Render: torn down.");
     }
 }

@@ -97,8 +97,8 @@
   <main>
     <section class="panel" id="display-panel">
       <div class="panel-head">
-        <h2>Display</h2>
-        <span class="panel-sub">overlay · borderless · monitor</span>
+        <h2>Appearance</h2>
+        <span class="panel-sub">overlay · logo · window</span>
       </div>
       <div class="controls">
         <label class="switch">
@@ -121,14 +121,10 @@
           <span class="switch-track"><span class="switch-thumb"></span></span>
           <span class="switch-label">Always on top</span>
         </label>
-        <div class="control-field">
-          <label for="monitor">Monitor</label>
-          <select id="monitor"></select>
-        </div>
       </div>
 
-      <div class="logo-advanced" id="logo-advanced">
-        <div class="settings-sub">Logo settings</div>
+      <details class="fold logo-advanced" id="logo-advanced">
+        <summary>Logo settings</summary>
         <div class="logo-controls">
           <div class="logo-field">
             <label for="logo-opacity">Opacity <span class="logo-val" id="logo-opacity-val">40%</span></label>
@@ -156,10 +152,10 @@
             </select>
           </div>
         </div>
-      </div>
+      </details>
 
-      <div class="overlay-advanced" id="overlay-advanced">
-        <div class="settings-sub">Overlay settings</div>
+      <details class="fold overlay-advanced" id="overlay-advanced">
+        <summary>Overlay settings</summary>
         <div class="logo-controls">
           <div class="logo-field">
             <label for="badge-opacity">Opacity <span class="logo-val" id="badge-opacity-val">77%</span></label>
@@ -182,21 +178,31 @@
             </select>
           </div>
         </div>
-      </div>
+      </details>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="streams-panel">
       <div class="panel-head">
         <h2>Streams</h2>
-        <span class="panel-sub">vessel name · source URL · live monitor</span>
+        <span class="panel-sub">vessel name · source URL · live edits</span>
       </div>
       <div id="feeds" class="feeds"></div>
 
+      <div class="panel-foot">
+        <button id="save" type="button" class="btn btn-primary">Save to Config</button>
+        <span id="streams-feedback" class="feedback"></span>
+        <span class="panel-hint">Edit a stream's name or source URL (Enter applies it live), then Save to Config to keep it. The switch by each stream shows just the vessel name + a health dot.</span>
+      </div>
+    </section>
+
+    <section class="panel" id="wall-panel">
+      <div class="panel-head">
+        <h2>Wall Layout</h2>
+        <span class="panel-sub">roster · displays · apply &amp; restart</span>
+      </div>
       <div class="roster" id="roster">
-        <div class="settings-sub">Roster (layout)</div>
-        <p class="roster-intro">Choose which streams make up the wall — add a source, deactivate one to park it in
-          the pool, or reactivate a parked one, then <strong>Apply</strong> to rebuild the wall. It auto-tiles to
-          the number of active streams.</p>
+        <p class="roster-intro">Choose which streams make up the wall — add a source, park one in the pool, or
+          bring one back, then <strong>Apply</strong>. The wall auto-tiles to the active count.</p>
         <div class="roster-add">
           <input type="text" id="roster-url" class="roster-input roster-url-input" placeholder="rtsp://host/path"
                  spellcheck="false" maxlength="512" />
@@ -214,6 +220,14 @@
             <div id="roster-pool" class="roster-list"></div>
           </div>
         </div>
+        <div class="roster-displays-wrap">
+          <div class="settings-sub">Displays</div>
+          <p class="roster-intro">Split the wall across monitors — each display takes the next block of active
+            cells, in order. Monitor, layout and cell count all land together on <strong>Apply</strong>.</p>
+          <div id="roster-displays" class="roster-displays"></div>
+          <div id="roster-cells-note" class="roster-cells-note" hidden></div>
+          <div id="unassigned-note" class="unassigned-note" hidden></div>
+        </div>
         <div id="roster-caution" class="roster-caution" hidden></div>
         <div id="roster-dirty-note" class="roster-dirty-note" hidden>Per-stream name / source edits are paused
           while the roster has unsaved changes — Apply or Discard to resume.</div>
@@ -221,23 +235,17 @@
           <button id="roster-apply" type="button" class="btn btn-primary">Apply layout &amp; restart</button>
           <button id="roster-discard" type="button" class="btn">Discard</button>
           <span id="roster-feedback" class="feedback"></span>
-          <span class="panel-hint">Applying rebuilds the wall — it blinks ~1 s while the display restarts.
+          <span class="panel-hint">Applying rebuilds the wall — it blinks ~1 s while it restarts.
             Active cells aren't reorderable yet.</span>
         </div>
       </div>
-
-      <div class="panel-foot">
-        <button id="save" type="button" class="btn btn-primary">Save to Config</button>
-        <span id="streams-feedback" class="feedback"></span>
-        <span class="panel-hint">Edit a stream's name or source URL (Enter applies it live), then Save to Config to keep it. The switch by each stream shows just the vessel name + a health dot.</span>
-      </div>
     </section>
 
-    <section class="panel" id="settings-panel">
-      <div class="panel-head">
+    <details class="panel panel-fold" id="settings-panel">
+      <summary class="panel-head">
         <h2>mpv Settings</h2>
         <span class="panel-sub">Apply = this session · Save = write to config</span>
-      </div>
+      </summary>
       <fieldset id="settings-fields" class="settings-fields">
         <div class="settings-grid">
           <div class="setting">
@@ -320,7 +328,7 @@
           </div>
         </div>
 
-        <details class="settings-advanced">
+        <details class="fold">
           <summary>Advanced</summary>
           <div class="settings-grid">
             <div class="setting">
@@ -361,7 +369,7 @@
           <span class="panel-hint">Hardware decode &amp; per-media changes apply on the next reconnect; extra core args after Save + Restart Display.</span>
         </div>
       </fieldset>
-    </section>
+    </details>
   </main>
 
   <footer class="footbar">

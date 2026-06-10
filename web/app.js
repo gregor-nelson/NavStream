@@ -43,7 +43,7 @@
     logo: document.getElementById('logo'),
     borderless: document.getElementById('borderless'),
     alwaysOnTop: document.getElementById('always-on-top'),
-    monitor: document.getElementById('monitor'),
+    unassignedNote: document.getElementById('unassigned-note'),
     // logo settings popdown (range sliders + corner select)
     logoAdvanced: document.getElementById('logo-advanced'),
     logoOpacity: document.getElementById('logo-opacity'),
@@ -76,6 +76,8 @@
     rosterFeedback: document.getElementById('roster-feedback'),
     rosterCaution: document.getElementById('roster-caution'),
     rosterDirtyNote: document.getElementById('roster-dirty-note'),
+    rosterDisplays: document.getElementById('roster-displays'),
+    rosterCellsNote: document.getElementById('roster-cells-note'),
     // mpv settings panel (the whole <fieldset> disables together when the grid is down)
     settingsFields: document.getElementById('settings-fields'),
     netCache: document.getElementById('net-cache'),
@@ -115,10 +117,37 @@
   let feedStopped = false;     // last frame's supervisor "grid stopped" flag (drives the feed toggle)
   let namesLatched = false;    // names/names-only populated once per connection (seam: don't clobber edits)
   let settingsLatched = false; // mpv settings populated once per connection (same seam as names)
-  let monitorCount = -1;       // current monitor-select option count (rebuild only when it changes)
   let rosterLatched = false;   // roster draft seeded from a live frame at least once this connection
+  let rosterApplyPending = false; // applyRoster sent; cleared by the restart's SSE drop (success) or a timeout (failure)
+  let rosterApplyTimer = 0;
   let lastFrame = null;        // last rendered frame, so Discard can re-seed without waiting for the next tick
-  const roster = { active: [], pool: [], dirty: false };  // membership draft (active arrays + parked pool)
+  const roster = { active: [], pool: [], displays: [], dirty: false };  // membership + partition draft
+
+  // Layout presets the Wall Layout partition editor offers — the single home for display/grid control.
+  // The full list is always available: the Apply+restart path reconciles cells vs capacity via Normalize.
+  // A valid non-preset layout from a hand-edited config (any "CxR") gets its own option when mirrored.
+  const LAYOUTS = [['auto', 'Auto'], ['1x1', '1×1'], ['2x1', '2×1'], ['1x2', '1×2'], ['2x2', '2×2'], ['3x2', '3×2']];
+
+  // A frame carries authoritative live data when any feed is non-Offline — OR when the connected render
+  // reports ZERO feeds: offline placeholders are always ≥1 row, so an empty list can only be a genuinely
+  // empty wall (0 configured streams), and the editors must still latch/enable so the first stream can be
+  // added from the dashboard. One predicate for all three latch seams (settings, names, roster).
+  function hasLiveData(feeds, connected) {
+    feeds = feeds || [];
+    return !!connected && (feeds.length === 0 || feeds.some((x) => x.health && x.health !== 'Offline'));
+  }
+
+  // Monitor options 0..optCount-1 for a display select; optCount can exceed the live monitorCount when a
+  // saved config references a monitor that isn't attached right now — those entries are labelled
+  // "(unplugged)" so the select can still represent the config truth.
+  function fillMonitorOptions(select, optCount, monitorCount) {
+    for (let m = 0; m < optCount; m++) {
+      const opt = document.createElement('option');
+      opt.value = String(m);
+      opt.textContent = 'Monitor ' + m + (m >= monitorCount ? ' (unplugged)' : '');
+      select.appendChild(opt);
+    }
+  }
 
   // ---- command channel (POST /command) ----
 
@@ -186,11 +215,6 @@
     });
     els.badgePosition.addEventListener('change', () =>
       send({ name: 'setBadgePosition', intValue: Number(els.badgePosition.value) || 0 }));
-
-    els.monitor.addEventListener('change', () => {
-      const i = els.monitor.selectedIndex;
-      if (i >= 0) send({ name: 'setMonitor', intValue: i });
-    });
 
     els.restart.addEventListener('click', async () => {
       if (!confirm('Restart the whole display now? (the grid blinks ~1 s)')) return;
@@ -358,7 +382,19 @@
     els.status.className = 'status ' + (f.status.kind === 'none' ? '' : f.status.kind);
 
     // A dropped connection re-arms the name + settings latches so the next live snapshot repopulates them.
-    if (!f.connected && connected) { namesLatched = false; settingsLatched = false; rosterLatched = false; }
+    if (!f.connected && connected) {
+      namesLatched = false; settingsLatched = false; rosterLatched = false;
+      // The restart blink after a roster Apply: the render only restarts after a SUCCESSFUL config save,
+      // so the drop is the "accepted + saved" signal — only now is it safe to mark the draft clean (it
+      // re-seeds from the new live roster on reconnect).
+      if (rosterApplyPending) {
+        rosterApplyPending = false;
+        clearTimeout(rosterApplyTimer);
+        roster.dirty = false;
+        lastRosterSig = '';
+        applyDirtyGate();
+      }
+    }
     connected = f.connected;
     feedStopped = !!f.feedStopped;
 
@@ -367,7 +403,7 @@
     renderSettings(f);
     renderPower(f);
     renderRoster(f);
-    renderFeeds(f.feeds || [], f.connected);
+    renderFeeds(f.feeds || [], f.connected, (f.visual || {}).displays || []);
   }
 
   // ---- header telemetry chips (pure output; banner + status are set above in render) ----
@@ -415,10 +451,13 @@
       chipColor(els.chipFresh, 'off');
     }
 
-    // Monitor index the grid is on.
+    // Monitor index(es) the wall renders on — one per display ("MON 0+1"), legacy fallback to v.monitor.
     const v = f.visual || {};
     if (conn) {
-      els.monitorVal.textContent = 'MON ' + (v.monitor != null ? v.monitor : 0);
+      const ds = v.displays || [];
+      els.monitorVal.textContent = 'MON ' + (ds.length
+        ? ds.map((d) => d.monitor).join('+')
+        : (v.monitor != null ? v.monitor : 0));
       chipColor(els.chipMonitor, '');
     } else {
       els.monitorVal.textContent = '—';
@@ -460,8 +499,7 @@
     // Latch the mpv settings ONCE per connection (seam: don't clobber the operator's in-progress edits),
     // and only off a frame that actually carries live feed data — a freshly-connected frame can still hold
     // offline placeholders, in which case f.settings is a zeroed default, not the real config.
-    const hasLive = (f.feeds || []).some((x) => x.health && x.health !== 'Offline');
-    if (!f.connected || settingsLatched || !hasLive) return;
+    if (!f.connected || settingsLatched || !hasLiveData(f.feeds, f.connected)) return;
 
     const s = f.settings || {};
     setNum(els.netCache, s.networkCachingMs);
@@ -525,29 +563,21 @@
     if (document.activeElement !== els.badgePosition && v.badgePosition != null)
       els.badgePosition.value = String(v.badgePosition);
 
-    // Monitor selector: rebuild the option list only when the count changes, then reflect the active one
-    // (but never while the operator has the dropdown open).
-    const count = Math.max(1, v.monitorCount || 0);
-    if (count !== monitorCount) {
-      monitorCount = count;
-      els.monitor.innerHTML = '';
-      for (let i = 0; i < count; i++) {
-        const opt = document.createElement('option');
-        opt.value = String(i);
-        opt.textContent = 'Monitor ' + i;
-        els.monitor.appendChild(opt);
-      }
-    }
-    if (document.activeElement !== els.monitor && v.monitor >= 0 && v.monitor < els.monitor.options.length) {
-      els.monitor.selectedIndex = v.monitor;
-    }
+    // Normalize rule-6 residual: configured streams beyond the wall's cell count have no feed (and no feed
+    // card), so this note — sitting under the Wall Layout partition editor — is the operator's only signal
+    // that something isn't rendering.
+    const unassigned = (f.connected && v.unassignedStreams) || 0;
+    els.unassignedNote.hidden = unassigned <= 0;
+    if (unassigned > 0)
+      els.unassignedNote.textContent = '⚠ ' + unassigned + ' configured stream' + (unassigned === 1 ? ' has' : 's have')
+        + ' no cell on the wall and ' + (unassigned === 1 ? 'is' : 'are') + ' not rendering — grow the '
+        + 'Displays split above and Apply.';
 
     // These controls are meaningless while the grid is down. The cmdbar controls gate themselves in
     // renderPower (restart on connected; feed toggle / shutdown / exit never disabled), so they are NOT in
     // this line; the mpv-settings panel gates itself in renderSettings.
     const on = !!f.connected;
-    els.overlay.disabled = els.borderless.disabled = els.alwaysOnTop.disabled =
-      els.monitor.disabled = els.save.disabled = !on;
+    els.overlay.disabled = els.borderless.disabled = els.alwaysOnTop.disabled = els.save.disabled = !on;
 
     // Logo sliders only make sense when the grid is up AND the watermark is on — disable + grey otherwise.
     const logoOn = on && !!v.logoEnabled;
@@ -561,18 +591,45 @@
     els.overlayAdvanced.classList.toggle('is-disabled', !badgeOn);
   }
 
-  function renderFeeds(feeds, isConn) {
+  function renderFeeds(feeds, isConn, displays) {
     // Grow/shrink the cached card list to match the frame.
     while (rows.length < feeds.length) rows.push(makeRow());
     while (rows.length > feeds.length) els.feeds.removeChild(rows.pop().root);
 
+    updateFeedSeparators(displays || []);
+
     // Latch the operator-set name + names-only ONCE per connection — only off a frame that actually carries
     // live feed data (a connected frame can briefly still hold offline placeholders before the first snapshot).
-    const latchNow = isConn && !namesLatched && feeds.some((f) => f.health && f.health !== 'Offline');
+    const latchNow = isConn && !namesLatched && hasLiveData(feeds, isConn);
 
     for (let i = 0; i < feeds.length; i++) updateRow(rows[i], feeds[i], isConn, latchNow);
 
     if (latchNow) namesLatched = true;
+  }
+
+  // Multi-display walls get a thin separator label ("DISPLAY n · MON m") above each display's first feed
+  // card, derived from visual.displays. Signature-keyed so the 1 Hz frames don't thrash the DOM; the rows
+  // array itself stays untouched (cards keep flat global indices).
+  let feedSepSig = '';
+  const feedSeps = [];
+  function updateFeedSeparators(displays) {
+    const sig = displays.map((d) => (d.cells || 0) + '@' + (d.monitor || 0)).join() + ':' + rows.length;
+    if (sig === feedSepSig) return;
+    feedSepSig = sig;
+    for (const s of feedSeps) s.remove();
+    feedSeps.length = 0;
+    if (displays.length < 2) return;
+    let offset = 0;
+    displays.forEach((d, i) => {
+      if (offset < rows.length) {
+        const sep = document.createElement('div');
+        sep.className = 'feed-display-sep';
+        sep.textContent = 'DISPLAY ' + i + ' · MON ' + (d.monitor || 0);
+        els.feeds.insertBefore(sep, rows[offset].root);
+        feedSeps.push(sep);
+      }
+      offset += d.cells || 0;
+    });
   }
 
   function makeRow() {
@@ -758,11 +815,19 @@
   let lastRosterSig = '';   // skips redundant repaints (the draft re-seeds every clean frame at 1 Hz)
 
   function renderRoster(f) {
-    const hasLive = (f.feeds || []).some((x) => x.health && x.health !== 'Offline');
-    // Seed/refresh the draft from live telemetry while the operator hasn't started editing.
-    if (f.connected && hasLive && !roster.dirty) {
-      roster.active = (f.feeds || []).map((x) => ({ url: x.url || '', name: x.name || '', namesOnly: !!x.namesOnly }));
+    // Seed/refresh the draft from live telemetry while the operator hasn't started editing. The active
+    // draft = rendered feeds PLUS the rule-6 residual streams (active in config but without a cell — they
+    // have no feed card, and applyRoster overwrites Config wholesale, so omitting them here would
+    // permanently delete them from streams.json on the next Apply).
+    if (f.connected && hasLiveData(f.feeds, f.connected) && !roster.dirty) {
+      roster.active = (f.feeds || [])
+        .map((x) => ({ url: x.url || '', name: x.name || '', namesOnly: !!x.namesOnly }))
+        .concat((f.unassignedActive || []).map((p) => ({ url: p.url || '', name: p.name || '', namesOnly: !!p.namesOnly })));
       roster.pool = (f.inactivePool || []).map((p) => ({ url: p.url || '', name: p.name || '', namesOnly: !!p.namesOnly }));
+      const ds = ((f.visual || {}).displays || []);
+      roster.displays = ds.length
+        ? ds.map((d) => ({ monitor: d.monitor || 0, layout: d.layout || 'auto', cells: d.cells || 1 }))
+        : [{ monitor: ((f.visual || {}).monitor) || 0, layout: 'auto', cells: roster.active.length || 1 }];
       rosterLatched = true;
     }
     paintRoster();
@@ -772,7 +837,10 @@
   // thrash the DOM when nothing actually changed.
   function paintRoster() {
     const enabled = connected && rosterLatched;
-    const sig = JSON.stringify({ a: roster.active, p: roster.pool, d: roster.dirty, e: enabled });
+    // monitorCount is in the signature so a monitor hotplug/unplug refreshes the partition editor's
+    // monitor dropdowns even when the draft itself hasn't changed.
+    const monitorCount = Math.max(1, (((lastFrame || {}).visual || {}).monitorCount) || 0);
+    const sig = JSON.stringify({ a: roster.active, p: roster.pool, ds: roster.displays, d: roster.dirty, e: enabled, m: monitorCount });
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
 
@@ -782,6 +850,7 @@
 
     paintList(els.rosterActive, roster.active, true, enabled);
     paintList(els.rosterPool, roster.pool, false, enabled);
+    paintRosterDisplays(enabled, monitorCount);
 
     els.rosterAdd.disabled = !enabled || n >= 16;
     els.rosterUrl.disabled = !enabled;
@@ -811,6 +880,121 @@
       return;
     }
     items.forEach((item, i) => container.appendChild(makeRosterRow(item, i, isActive, enabled)));
+  }
+
+  // The display-partition editor: monitor / layout / cells per display, add/remove display (1..8). This is
+  // the ONLY place the dashboard edits the partition (the old live per-display selects competed with it and
+  // could be silently reverted by a stale draft). It offers the FULL layout list and any cells value — the
+  // restart path lets Normalize reconcile (clamp cells to capacity, shrink/grow against the active count),
+  // and the Σ readout below warns about a mismatch without blocking Apply. Rows are rebuilt only on a structural change
+  // (display count / monitor option range) and value-mirrored in place otherwise, so committing the cells
+  // input (Enter / spinner / blur) never tears down the control under the operator's focus.
+  let rosterDispSig = '';   // structural signature; '' forces a rebuild
+  let rosterDispRows = [];  // cached row DOM {root, monitor, layout, cells, remove}
+  let rosterAddBtn = null;
+
+  function paintRosterDisplays(enabled, monitorCount) {
+    const optCounts = roster.displays.map((d) => Math.max(monitorCount, (d.monitor || 0) + 1));
+    const struct = roster.displays.length + ':' + monitorCount + ':' + optCounts.join();
+    if (struct !== rosterDispSig) {
+      rosterDispSig = struct;
+      els.rosterDisplays.textContent = '';
+      rosterDispRows = roster.displays.map((d, i) => makeRosterDisplayRow(i, optCounts[i], monitorCount));
+      rosterAddBtn = btn('Add display', true, () => {
+        roster.displays.push({ monitor: 0, layout: 'auto', cells: 1 });
+        rosterDirty();
+      });
+      els.rosterDisplays.appendChild(rosterAddBtn);
+    }
+
+    // Mirror draft values + gate states in place (never over the control the operator is using).
+    roster.displays.forEach((d, i) => {
+      const row = rosterDispRows[i];
+      if (!row) return;
+      if (document.activeElement !== row.monitor) row.monitor.value = String(d.monitor);
+      if (document.activeElement !== row.layout) {
+        const val = String(d.layout || 'auto');
+        // A valid non-preset layout (hand-edited config, e.g. "4x2" — the C# parser accepts any CxR) gets
+        // its own option rather than masquerading as Auto: the select must show exactly what Apply sends.
+        if (![...row.layout.options].some((o) => o.value === val)) {
+          const opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = val;
+          row.layout.appendChild(opt);
+        }
+        row.layout.value = val;
+      }
+      if (document.activeElement !== row.cells) row.cells.value = String(d.cells);
+      row.monitor.disabled = row.layout.disabled = row.cells.disabled = !enabled;
+      row.remove.disabled = !(enabled && roster.displays.length > 1);
+    });
+    rosterAddBtn.disabled = !(enabled && roster.displays.length < 8);
+
+    // Σ cells readout: warn on a mismatch with the active count, but never block — Normalize reconciles
+    // (shrinks from the tail / grows the last display; residual streams stay unrendered and are logged).
+    const total = roster.displays.reduce((s, d) => s + (d.cells || 0), 0);
+    const n = roster.active.length;
+    if (total !== n) {
+      els.rosterCellsNote.hidden = false;
+      els.rosterCellsNote.textContent = '⚠ Displays take ' + total + ' cell' + (total === 1 ? '' : 's')
+        + ' but ' + n + ' stream' + (n === 1 ? ' is' : 's are') + ' active — Apply will auto-reconcile '
+        + (total > n ? '(the last display shrinks).' : '(the last display grows up to its layout; leftover streams won\'t render).');
+    } else {
+      els.rosterCellsNote.hidden = true;
+    }
+  }
+
+  // One roster partition row. Handlers read/write roster.displays[i] at event time — rows are positional
+  // and any add/remove changes the structural signature, which rebuilds the whole strip (fresh indices).
+  function makeRosterDisplayRow(i, optCount, monitorCount) {
+    const row = document.createElement('div');
+    row.className = 'roster-display-row';
+
+    const label = document.createElement('span');
+    label.className = 'display-row-label';
+    label.textContent = 'Display ' + i;
+
+    const monitor = document.createElement('select');
+    monitor.title = 'Which monitor this display\'s grid renders on (lands on Apply & restart). An "unplugged" '
+      + 'entry is a monitor the saved config references that isn\'t connected right now — the grid falls '
+      + 'back to monitor 0 until it returns.';
+    fillMonitorOptions(monitor, optCount, monitorCount);
+    monitor.addEventListener('change', () => {
+      roster.displays[i].monitor = Number(monitor.value) || 0;
+      rosterDirty();
+    });
+
+    const layout = document.createElement('select');
+    layout.title = 'Layout preset for this display (lands on Apply & restart). Auto tiles near-square to its '
+      + 'cell count; a fixed layout keeps its frame, leaving spare cells black.';
+    for (const [val, text] of LAYOUTS) {
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = text;
+      layout.appendChild(opt);
+    }
+    layout.addEventListener('change', () => {
+      roster.displays[i].layout = layout.value;
+      rosterDirty();
+    });
+
+    const cells = document.createElement('input');
+    cells.type = 'number';
+    cells.className = 'roster-cells-input';
+    cells.min = '1';
+    cells.max = '16';
+    cells.step = '1';
+    cells.title = 'How many active streams this display takes (in roster order).';
+    cells.addEventListener('change', () => {
+      roster.displays[i].cells = Math.max(1, Math.min(16, Math.round(Number(cells.value)) || 1));
+      cells.value = String(roster.displays[i].cells);   // show the clamp even while the input keeps focus
+      rosterDirty();
+    });
+
+    const remove = btn('Remove', true, () => { roster.displays.splice(i, 1); rosterDirty(); });
+    row.append(label, monitor, layout, cells, remove);
+    els.rosterDisplays.appendChild(row);
+    return { root: row, monitor, layout, cells, remove };
   }
 
   function makeRosterRow(item, i, isActive, enabled) {
@@ -917,14 +1101,26 @@
         names: roster.active.map((a) => a.name),
         namesOnly: roster.active.map((a) => a.namesOnly),
         inactivePool: roster.pool,
+        displays: roster.displays.map((d) => ({
+          monitor: Number(d.monitor) || 0,
+          layout: d.layout || 'auto',
+          cells: Math.max(1, Number(d.cells) || 1),
+        })),
       });
       if (!ok) { feedback(els.rosterFeedback, "Couldn't reach the grid.", 'warn'); return; }
       feedback(els.rosterFeedback, 'Applying — the wall blinks ~1 s while it restarts.', 'ok');
-      // The restart drops SSE; on reconnect the (now clean) draft re-seeds from the new live roster.
-      roster.dirty = false;
-      lastRosterSig = '';
-      applyDirtyGate();
-      paintRoster();
+      // DON'T mark the draft clean yet: the render only restarts after a successful config save (a failed
+      // save keeps the old wall and just logs). The restart's SSE drop is the success signal — handled in
+      // render(), which then clears the draft so it re-seeds from the new roster on reconnect. If the drop
+      // never comes, the save failed and the draft must survive instead of silently re-seeding away.
+      rosterApplyPending = true;
+      clearTimeout(rosterApplyTimer);
+      rosterApplyTimer = setTimeout(() => {
+        if (!rosterApplyPending) return;
+        rosterApplyPending = false;
+        feedback(els.rosterFeedback,
+          "The wall didn't restart — the config save likely failed (check the log). Your changes are kept.", 'warn');
+      }, 6000);
     });
 
     els.rosterDiscard.addEventListener('click', () => {

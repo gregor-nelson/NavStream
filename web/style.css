@@ -213,10 +213,34 @@ body {
 
 /* ---- main / panel ---- */
 
+/* Panels live on a responsive grid (template areas, so DOM order ≠ visual order): one column when narrow;
+   two columns when there's room — live stream cards left, the wall/appearance/settings controls right —
+   so the whole dashboard reads side-by-side instead of one long scroll. */
 main {
   flex: 1 1 auto;
   padding: 18px 22px 24px;
   overflow: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'streams' 'wall' 'appearance' 'settings';
+  gap: 16px;
+  align-items: start;
+  align-content: start;
+}
+#streams-panel  { grid-area: streams; }
+#wall-panel     { grid-area: wall; }
+#display-panel  { grid-area: appearance; }
+#settings-panel { grid-area: settings; }
+
+@media (min-width: 1180px) {
+  main {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    grid-template-areas:
+      'streams wall'
+      'streams appearance'
+      'streams settings'
+      'streams .';
+  }
 }
 
 .panel {
@@ -248,7 +272,7 @@ main {
 
 .feeds {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 12px;
 }
 
@@ -612,8 +636,17 @@ select:disabled { opacity: 0.4; cursor: default; }
 }
 .panel-hint { font-size: 13px; color: var(--t-lo); margin-left: auto; }
 
-/* Space stacked panels (Display · Streams · mpv Settings · Power). */
-.panel + .panel { margin-top: 16px; }
+/* A whole panel that collapses (mpv Settings) — its .panel-head doubles as the <summary> toggle. */
+summary.panel-head { cursor: pointer; list-style: none; user-select: none; }
+summary.panel-head::-webkit-details-marker { display: none; }
+summary.panel-head::before {
+  content: '▸';
+  font-size: 13px;
+  color: var(--t-lo);
+  transition: transform 0.12s ease;
+}
+.panel-fold[open] > summary.panel-head::before { transform: rotate(90deg); }
+.panel-fold:not([open]) > summary.panel-head { margin-bottom: 2px; }
 
 /* ---- mpv settings panel ---- */
 
@@ -698,11 +731,13 @@ textarea {
   line-height: 1.4;
 }
 
-/* Advanced (collapsible) sub-block inside the settings fieldset. */
-.settings-advanced { margin-top: 16px; }
-.settings-advanced > summary {
+/* Collapsible sub-block — the styled <summary> heading replaces a .settings-sub label. Used by the
+   settings Advanced block and the Appearance panel's Logo / Overlay settings popdowns. */
+.fold { margin-top: 16px; }
+.fold > summary {
   cursor: pointer;
   list-style: none;
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -713,15 +748,15 @@ textarea {
   text-transform: uppercase;
   color: var(--t-lo);
 }
-.settings-advanced > summary::-webkit-details-marker { display: none; }
-.settings-advanced > summary::before {
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before {
   content: '▸';
   font-size: 11px;
   transition: transform 0.12s ease;
 }
-.settings-advanced[open] > summary::before { transform: rotate(90deg); }
-.settings-advanced > summary:hover { color: var(--t-md); }
-.settings-advanced > .settings-grid { margin-top: 12px; }
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary:hover { color: var(--t-md); }
+.fold > .settings-grid { margin-top: 12px; }
 
 /* ---- logo / overlay settings (Display panel) ---- */
 /* Inline blocks under a .settings-sub heading (matching the mpv Settings panel); this adds the slider grid inside. */
@@ -843,3 +878,39 @@ input[type="range"]:disabled { opacity: 0.4; cursor: default; }
 }
 .tooltip.above .tooltip-arrow { bottom: -6px; border-left: 0; border-top: 0; }
 .tooltip.below .tooltip-arrow { top: -6px; border-right: 0; border-bottom: 0; }
+
+/* ---- multi-monitor (Wall Layout panel) ---- */
+
+.display-row-label {
+  font-size: 15px;
+  color: var(--t-md);
+  min-width: 88px;
+}
+
+/* Streams configured but without a cell on the wall (Normalize residual) — they have no feed card,
+   so this note under the Displays editor is the operator's only signal. Persistent (not transient). */
+.unassigned-note { margin: 10px 2px 0; font-size: 13px; color: var(--amber); letter-spacing: 0.2px; }
+
+/* Display separator label above each display's first feed card (multi-display walls only). */
+.feed-display-sep {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--t-lo);
+}
+
+/* ---- roster display-partition editor (Streams panel) ---- */
+
+.roster-displays {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+}
+.roster-display-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.roster-cells-input { width: 70px; }
+.roster-cells-note { margin: 10px 2px 0; font-size: 13px; color: var(--amber); letter-spacing: 0.2px; }

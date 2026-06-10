@@ -153,6 +153,7 @@ internal sealed class ViewFrameBuilder : IDisposable
             Visual = connected && last is not null ? last.Visual : new VisualSnapshot(),
             Settings = connected && last is not null ? last.Settings : new SettingsSnapshot(),
             InactivePool = connected && last is not null ? last.InactivePool : new List<InactiveStream>(),
+            UnassignedActive = connected && last is not null ? last.UnassignedActive : new List<InactiveStream>(),
         };
     }
 
@@ -206,10 +207,13 @@ internal sealed class ViewFrameBuilder : IDisposable
 
     /// <summary>Live feed rows when connected; otherwise <paramref name="lastFeedCount"/> offline placeholders
     /// (clamped [1,16]) so the grid keeps its shape across the ~1 s restart blink instead of snapping to 4.
-    /// The exact count during the blink doesn't matter — it re-syncs to the real feed count on reconnect.</summary>
+    /// The exact count during the blink doesn't matter — it re-syncs to the real feed count on reconnect.
+    /// A connected render with a snapshot is authoritative even at 0 feeds (a genuinely empty wall):
+    /// padding that to a placeholder would make the browser unable to distinguish "no streams configured —
+    /// editing enabled" from "stale placeholders — don't latch", dead-locking the roster editor.</summary>
     private static List<FeedSnapshot> BuildFeeds(bool connected, ControlSnapshot? last, int lastFeedCount)
     {
-        if (connected && last is not null && last.Feeds.Count > 0)
+        if (connected && last is not null)
             return last.Feeds;
 
         int n = Math.Clamp(lastFeedCount, 1, 16);
@@ -254,6 +258,7 @@ internal sealed class ViewFrame
     public VisualSnapshot Visual { get; set; } = new();
     public SettingsSnapshot Settings { get; set; } = new();
     public List<InactiveStream> InactivePool { get; set; } = new(); // parked pool, for the dashboard roster editor
+    public List<InactiveStream> UnassignedActive { get; set; } = new(); // active streams without a cell (roster must carry them)
 }
 
 /// <summary>The big header line. <see cref="Kind"/> drives the colour ("connected"/"feedStopped"/"down").</summary>

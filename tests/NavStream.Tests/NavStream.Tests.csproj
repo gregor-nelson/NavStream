@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!-- The units under test are pure (no WinForms / libmpv): GridLayout's tiling math + LayoutSpec, and
+       Config's Normalize/partition reconciliation. They are compiled in directly (source link) rather than
+       referencing NavStream.csproj — the app is a self-contained single-file WinExe, which can't be
+       project-referenced by a framework-dependent test project. Internal types become test-assembly
+       internals this way, so no InternalsVisibleTo is needed either. -->
+  <ItemGroup>
+    <Compile Include="..\..\GridLayout.cs" Link="src\GridLayout.cs" />
+    <Compile Include="..\..\Config.cs" Link="src\Config.cs" />
+  </ItemGroup>
+
+</Project>

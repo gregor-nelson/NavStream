@@ -4,13 +4,19 @@ using System.Windows.Forms;
 namespace NavStream;
 
 /// <summary>
-/// The single borderless render window (spec §3, D6). Hosts N (1–16) <see cref="MpvHost"/> controls
-/// tiled edge-to-edge with zero gaps via <see cref="GridLayout"/>. Owns no playback state itself —
-/// the engine (step 4) embeds an mpv handle into each host's HWND and wires the hotkey callbacks below.
+/// One borderless render window of the wall (spec §3, D6) — one per <see cref="DisplayConfig"/> entry,
+/// all hosted in the same render process. Hosts that display's slice of <see cref="MpvHost"/> controls
+/// tiled via <see cref="GridLayout.Compute"/> (auto or a fixed layout preset; a fixed frame's unoccupied
+/// cells show this form's black background). Owns no playback state itself — the single shared engine
+/// embeds an mpv handle into each host's HWND, and the hotkey callbacks below carry global feed indices
+/// so any focused form can drive any feed.
 /// </summary>
 internal sealed class GridForm : Form
 {
     private readonly Config _config;
+    private readonly DisplayConfig _display;
+    private readonly int _displayIndex;
+    private LayoutSpec _spec;
     private readonly MpvHost[] _views;
     private bool _viewsReady; // guards ApplyGrid() against resize events that fire mid-construction
 
@@ -27,9 +33,12 @@ internal sealed class GridForm : Form
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public Action? OnLayoutChanged { get; set; }       // overlay repositioning hook
 
-    public GridForm(Config config)
+    public GridForm(Config config, DisplayConfig display, int displayIndex)
     {
         _config = config;
+        _display = display;
+        _displayIndex = displayIndex;
+        _spec = LayoutSpec.Parse(display.Layout);
 
         FormBorderStyle = FormBorderStyle.None;
         Text = "NavStream";
@@ -40,11 +49,11 @@ internal sealed class GridForm : Form
         StartPosition = FormStartPosition.Manual;
         TopMost = _config.AlwaysOnTop;
 
-        Bounds = TargetScreenBounds(_config.Monitor);
+        Bounds = TargetScreenBounds(_display.Monitor);
 
-        // One host per active stream (clamped to [1,16]); the grid auto-tiles to this count.
-        int cells = Math.Clamp(_config.Streams.Count, 1, 16);
-        _views = new MpvHost[cells];
+        // One host per cell this display takes from the flat stream list (Normalize guarantees every view
+        // gets a feed, except the residual-streams shortfall case which RenderApp logs at startup).
+        _views = new MpvHost[display.Cells];
         for (int i = 0; i < _views.Length; i++)
         {
             // MpvHost sets BackColor=Black + TabStop=false in its own ctor; its .Handle is the mpv embed target.
@@ -76,7 +85,9 @@ internal sealed class GridForm : Form
         if (!_viewsReady)
             return;
 
-        var rects = GridLayout.Tile(_views.Length, ClientSize.Width, ClientSize.Height);
+        // Compute returns exactly _views.Length rects (Normalize caps Cells at the layout's capacity);
+        // a fixed frame's unoccupied capacity shows this form's black background.
+        var rects = GridLayout.Compute(_spec, _views.Length, ClientSize.Width, ClientSize.Height);
         for (int i = 0; i < _views.Length; i++)
         {
             _views[i].Bounds = rects[i];
@@ -84,17 +95,40 @@ internal sealed class GridForm : Form
         OnLayoutChanged?.Invoke();
     }
 
-    /// <summary>Move the whole grid to another monitor live (dashboard Phase B). Clamps to a valid index,
-    /// re-bounds to that screen's full pixel rect, relayouts the 4 views, and (via ApplyGrid →
-    /// OnLayoutChanged) repositions the overlay. Must run on the UI thread.</summary>
+    /// <summary>Move this display's grid to another monitor live (dashboard Phase B). Clamps to a valid
+    /// index, re-bounds to that screen's full pixel rect, relayouts the views, and (via ApplyGrid →
+    /// OnLayoutChanged) repositions the overlay. RenderApp mirrors Config.Monitor from Displays[0] after
+    /// dispatch. Must run on the UI thread.</summary>
     public void SetMonitor(int monitorIndex)
     {
-        var screens = Screen.AllScreens;
-        if (monitorIndex < 0 || monitorIndex >= screens.Length) monitorIndex = 0;
-        _config.Monitor = monitorIndex;
+        if (monitorIndex < 0) monitorIndex = 0;
+        // Preserve the REQUESTED index in config even when that monitor isn't attached right now —
+        // the bounds fall back to screen 0 (TargetScreenBounds), and the saved value means a replug +
+        // restart restores the wall to the intended monitor (edge-case contract; the dashboard offers
+        // saved-but-unplugged monitors as "(unplugged)" options on the same promise).
+        _display.Monitor = monitorIndex;
         Bounds = TargetScreenBounds(monitorIndex);
         ApplyGrid();
-        Logger.Log($"Render: grid moved to monitor {monitorIndex}.");
+        bool attached = monitorIndex < Screen.AllScreens.Length;
+        Logger.Log($"Render: display {_displayIndex} moved to monitor {monitorIndex}"
+            + (attached ? "." : " (not attached — showing on monitor 0 until it returns)."));
+    }
+
+    /// <summary>Switch this display's layout preset live (dashboard setLayout). Rejected (false) when the
+    /// new layout can't hold this display's cells — partition changes go through the save+restart path
+    /// instead. Must run on the UI thread.</summary>
+    public bool SetLayout(LayoutSpec spec)
+    {
+        if (spec.Capacity < _views.Length)
+        {
+            Logger.Log($"Render: display {_displayIndex} layout '{spec}' rejected — capacity {spec.Capacity} < {_views.Length} cells.");
+            return false;
+        }
+        _spec = spec;
+        _display.Layout = spec.ToString();
+        ApplyGrid();
+        Logger.Log($"Render: display {_displayIndex} layout set to '{spec}'.");
+        return true;
     }
 
     /// <summary>Toggle borderless full-bleed (None) vs a normal sizable window live (dashboard Phase B).
@@ -104,9 +138,9 @@ internal sealed class GridForm : Form
         _config.Borderless = borderless;
         FormBorderStyle = borderless ? FormBorderStyle.None : FormBorderStyle.Sizable;
         ShowInTaskbar = !borderless;
-        Bounds = TargetScreenBounds(_config.Monitor);
+        Bounds = TargetScreenBounds(_display.Monitor);
         ApplyGrid();
-        Logger.Log($"Render: borderless = {borderless}.");
+        Logger.Log($"Render: display {_displayIndex} borderless = {borderless}.");
     }
 
     /// <summary>Toggle always-on-top live (dashboard Phase B). Must run on the UI thread.</summary>
@@ -126,8 +160,9 @@ internal sealed class GridForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        // Re-assert bounds after the window manager has had its say (DPI/monitor quirks).
-        Bounds = TargetScreenBounds(_config.Monitor);
+        // Re-assert bounds after the window manager has had its say (DPI/monitor quirks). Each form
+        // re-asserts only its own monitor, so multiple forms never fight over placement.
+        Bounds = TargetScreenBounds(_display.Monitor);
         ApplyGrid();
         Activate();
     }

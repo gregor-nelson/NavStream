@@ -32,6 +32,7 @@
   <ItemGroup>
     <Compile Remove="reference\**\*.cs" />
     <Compile Remove="tools\**\*.cs" />
+    <Compile Remove="tests\**\*.cs" />
   </ItemGroup>
 
   <!-- App icon embedded so the tray + windows can load it at runtime even under single-file publish

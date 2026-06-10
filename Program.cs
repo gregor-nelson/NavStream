@@ -48,7 +48,7 @@ internal static class RenderHost
         // Clear any lingering signal before we start listening, so we don't self-trigger.
         try { stopEvent.Reset(); } catch { }
 
-        Logger.Log($"Render: starting. config={config.SourcePath}, streams={config.Streams.Count}, monitor={config.Monitor}");
+        Logger.Log($"Render: starting. config={config.SourcePath}, streams={config.Streams.Count}, monitor={config.Monitor}, displays={config.Displays!.Count}");
 
         try
         {

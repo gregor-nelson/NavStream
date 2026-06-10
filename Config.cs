@@ -38,9 +38,15 @@ internal sealed class Config
     /// never reads this pool; it is not positionally aligned with the active Streams/Names/OverlayNamesOnly
     /// lists. Round-trips in streams.json. A missing key loads as an empty list (back-compat).</summary>
     public List<InactiveStream> InactivePool { get; set; } = new();
-    public int Monitor { get; set; } = 0;          // Screen.AllScreens index
+    public int Monitor { get; set; } = 0;          // Screen.AllScreens index; mirrors Displays[0].Monitor (legacy key)
     public bool Borderless { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = false;
+
+    /// <summary>Multi-monitor partition: how the flat <see cref="Streams"/> list is split across displays,
+    /// in order (display 0 takes the first Cells feeds, display 1 the next, …). Cell numbering is continuous
+    /// across displays. Loaded as null from a legacy file — <see cref="Normalize"/> synthesizes one display
+    /// from the legacy <see cref="Monitor"/> key and always leaves this non-empty.</summary>
+    public List<DisplayConfig>? Displays { get; set; }
 
     // ---- engine / per-stream options (D7, §4) ----
     /// <summary>Receiver buffer (mpv <c>cache-secs</c>, given here in ms) — how much stream the engine prefetches
@@ -211,6 +217,7 @@ internal sealed class Config
         ExtraMpvArgs ??= new List<string>();
 
         if (Monitor < 0) Monitor = 0;
+        NormalizeDisplays();
         if (NetworkCachingMs < 0) NetworkCachingMs = 0;
         if (NetworkTimeoutSec < 0) NetworkTimeoutSec = 0;
         if (NetworkTimeoutSec > 3600) NetworkTimeoutSec = 3600;
@@ -257,6 +264,72 @@ internal sealed class Config
         if (DashboardHttpPort < 1024 || DashboardHttpPort > 65000) DashboardHttpPort = 8080;
     }
 
+    /// <summary>Normalize the multi-monitor partition (runs inside <see cref="Normalize"/>, after Streams is
+    /// final). Guarantees: Displays is non-empty (legacy file → one synthesized display), every entry is
+    /// canonical (Monitor ≥ 0, Layout a valid LayoutSpec string, Cells within capacity), and Σ Cells never
+    /// exceeds the active stream count (shrink from the tail). Σ Cells below the count grows the LAST display
+    /// up to its capacity; any residual streams stay unassigned (unrendered — logged by RenderApp at startup)
+    /// rather than deleting stream entries to fit a layout. Mirrors the legacy Monitor key to Displays[0].</summary>
+    private void NormalizeDisplays()
+    {
+        var displays = (Displays ?? new List<DisplayConfig>())
+            .Where(d => d is not null)
+            .Take(8)   // display cap
+            .ToList();
+
+        foreach (var d in displays)
+        {
+            // Out-of-range vs real screens is a runtime concern (TargetScreenBounds falls back to screen 0).
+            d.Monitor = Math.Max(0, d.Monitor);
+            var spec = LayoutSpec.Parse(d.Layout);
+            d.Layout = spec.ToString();   // canonicalize; invalid → "auto"
+            d.Cells = Math.Clamp(d.Cells, 1, spec.Capacity);
+        }
+
+        int n = Math.Clamp(Streams.Count, 1, 16);
+
+        if (displays.Count == 0)
+            displays.Add(new DisplayConfig { Monitor = Monitor, Layout = "auto", Cells = n });
+
+        // Σ Cells > N → shrink from the tail, dropping emptied trailing displays (≥1 display survives: n ≥ 1).
+        int sum = displays.Sum(d => d.Cells);
+        while (sum > n)
+        {
+            var last = displays[^1];
+            int trim = Math.Min(last.Cells, sum - n);
+            last.Cells -= trim;
+            sum -= trim;
+            if (last.Cells == 0 && displays.Count > 1) displays.RemoveAt(displays.Count - 1);
+            else if (last.Cells == 0) { last.Cells = 1; break; }
+        }
+
+        // Σ Cells < N → grow the LAST display up to its capacity; residual streams stay unassigned.
+        if (sum < n)
+        {
+            var last = displays[^1];
+            int cap = LayoutSpec.Parse(last.Layout).Capacity;
+            last.Cells = Math.Min(cap, last.Cells + (n - sum));
+        }
+
+        Displays = displays;
+        Monitor = displays[0].Monitor;   // keep the legacy key mirrored for old configs/clients
+    }
+
+    /// <summary>The display partition as (display, flat-offset, count) slices over <see cref="Streams"/>,
+    /// running-sum offsets — so RenderApp and the snapshot slice the flat feed list identically.
+    /// Call after <see cref="Normalize"/> (Displays is then non-empty and within bounds).</summary>
+    public IReadOnlyList<(DisplayConfig Display, int Offset, int Count)> GetDisplayPartition()
+    {
+        var parts = new List<(DisplayConfig, int, int)>();
+        int offset = 0;
+        foreach (var d in Displays ?? new List<DisplayConfig>())
+        {
+            parts.Add((d, offset, d.Cells));
+            offset += d.Cells;
+        }
+        return parts;
+    }
+
     /// <summary>Resolve LogPath against the exe directory when it is relative.</summary>
     public string ResolveLogPath()
     {
@@ -264,6 +337,17 @@ internal sealed class Config
             ? LogPath
             : Path.Combine(AppContext.BaseDirectory, LogPath);
     }
+}
+
+/// <summary>One display of the multi-monitor wall: which monitor it renders on, its layout preset
+/// ("auto" or "CxR" — see <see cref="LayoutSpec"/>), and how many of the flat active streams it takes
+/// (in list order, continuous cell numbering). Dual config/wire DTO like <see cref="InactiveStream"/> —
+/// round-trips in streams.json and over both IPC hops.</summary>
+internal sealed class DisplayConfig
+{
+    public int Monitor { get; set; }
+    public string Layout { get; set; } = "auto";
+    public int Cells { get; set; } = 4;
 }
 
 /// <summary>A defined-but-inactive stream parked in the roster pool. Not positionally aligned with anything;

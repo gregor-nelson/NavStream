@@ -48,10 +48,17 @@ internal sealed class VisualSnapshot
     public int BadgeOpacityPct { get; set; }
     public int BadgeSizePct { get; set; }
     public int BadgePosition { get; set; }
+    // Legacy single-display fields, kept populated (= Displays[0].Monitor) so old clients keep working.
     public int Monitor { get; set; }
     public int MonitorCount { get; set; }
     public bool Borderless { get; set; }
     public bool AlwaysOnTop { get; set; }
+    /// <summary>The multi-monitor partition (DisplayConfig doubles as the wire DTO, like InactiveStream).</summary>
+    public List<DisplayConfig> Displays { get; set; } = new();
+    /// <summary>Configured streams with no cell on the wall (Normalize rule 6 residual: Σ Cells maxed out
+    /// below the stream count). They have no engine feed — and so no feed card — which is exactly why the
+    /// dashboard needs this count to warn the operator.</summary>
+    public int UnassignedStreams { get; set; }
 }
 
 /// <summary>The engine knobs from <see cref="Config"/> (§7) the dashboard exposes (Phase C).</summary>
@@ -85,6 +92,12 @@ internal sealed class ControlSnapshot
     public string ConfigPath { get; set; } = "";
     public int RenderPid { get; set; }
     public List<InactiveStream> InactivePool { get; set; } = new(); // parked pool, for the dashboard roster editor
+
+    /// <summary>Active streams with no cell on the wall (Normalize rule-6 residual; same count as
+    /// <see cref="VisualSnapshot.UnassignedStreams"/>). They have no engine feed, so they ride here as
+    /// url/name/namesOnly triplets (<see cref="InactiveStream"/> doubles as the triplet DTO) — the roster
+    /// editor must seed its draft with them or an applyRoster would silently delete them from config.</summary>
+    public List<InactiveStream> UnassignedActive { get; set; } = new();
 }
 
 /// <summary>Command names (dashboard → render). Kept as constants so both ends agree.</summary>
@@ -101,7 +114,9 @@ internal static class ControlCommands
     public const string SetBadgeOpacity = "setBadgeOpacity";     // IntValue 30..100 (badge surface opacity %, live)
     public const string SetBadgeSize = "setBadgeSize";           // IntValue 60..160 (badge size % of base scale, live)
     public const string SetBadgePosition = "setBadgePosition";   // IntValue 0..3    (badge corner, live)
-    public const string SetMonitor = "setMonitor";          // IntValue  (Phase B)
+    public const string SetMonitor = "setMonitor";          // Index = display (default 0 ⇒ old clients keep working), IntValue = monitor
+    public const string SetLayout = "setLayout";            // Index = display, StringValue = layout ("auto"/"CxR"); live, capacity-gated
+    public const string ApplyDisplays = "applyDisplays";    // Displays (wholesale partition → Normalize + Save + restart)
     public const string SetBorderless = "setBorderless";    // BoolValue (Phase B)
     public const string SetAlwaysOnTop = "setAlwaysOnTop";  // BoolValue (Phase B)
     public const string SetName = "setName";                // Index + StringValue (vessel name, live)
@@ -125,6 +140,7 @@ internal sealed class ControlCommand
     public List<string>? Names { get; set; }                 // active vessel names, aligned with Streams (applyRoster)
     public List<bool>? NamesOnly { get; set; }               // active "name only" flags, aligned with Streams (applyRoster)
     public List<InactiveStream>? InactivePool { get; set; }  // the parked pool, wholesale (applyRoster)
+    public List<DisplayConfig>? Displays { get; set; }       // the display partition, wholesale (applyDisplays / applyRoster)
     public SettingsSnapshot? Settings { get; set; }
     public VisualSnapshot? Visual { get; set; }
 }

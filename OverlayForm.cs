@@ -60,15 +60,17 @@ internal sealed class OverlayForm : Form
 
     private IReadOnlyList<FeedController> _feeds = Array.Empty<FeedController>();
     private Rectangle[] _quadrants = Array.Empty<Rectangle>();
+    private LayoutSpec _spec;
 
-    public OverlayForm(Form owner, Rectangle screenBounds, bool topMost)
+    public OverlayForm(Form owner, Rectangle screenBounds, bool topMost, LayoutSpec spec)
     {
         Owner = owner;
+        _spec = spec;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Bounds = screenBounds;
-        RebuildQuadrants();   // _feeds is empty here → 1 rect; SetFeeds/Reposition rebuild before anything paints
+        RebuildQuadrants();   // _feeds is empty here → 0 rects; SetFeeds/Reposition rebuild before anything paints
         TopMost = topMost;
         Enabled = false;                // never takes input
     }
@@ -101,10 +103,21 @@ internal sealed class OverlayForm : Form
         if (Visible) RenderNow();
     }
 
-    /// <summary>Rebuild the badge rects to match the active feed count (1–16), tiled like the video grid.
-    /// Driven by <c>_feeds.Count</c> so badges always align with the cells <see cref="PaintOverlay"/> draws.</summary>
+    /// <summary>Rebuild the badge rects to match this display's feed slice, tiled exactly like the video
+    /// grid (same <see cref="GridLayout.Compute"/> dispatch). Quadrants equal the feed count by
+    /// construction, so badges and watermarks land only on occupied cells — a fixed layout's empty
+    /// trailing cells get nothing.</summary>
     private void RebuildQuadrants() =>
-        _quadrants = GridLayout.Tile(Math.Clamp(_feeds.Count, 1, 16), Bounds.Width, Bounds.Height);
+        _quadrants = GridLayout.Compute(_spec, _feeds.Count, Bounds.Width, Bounds.Height);
+
+    /// <summary>Adopt a new layout preset live (paired with the grid form's SetLayout). No-op if equal.</summary>
+    public void SetLayout(LayoutSpec spec)
+    {
+        if (_spec.Equals(spec)) return;
+        _spec = spec;
+        RebuildQuadrants();
+        RenderNow();
+    }
 
     /// <summary>Position the overlay over the grid and recompute the badge rects.</summary>
     public void Reposition(Rectangle screenBounds)
